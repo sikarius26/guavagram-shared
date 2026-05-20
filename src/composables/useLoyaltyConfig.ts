@@ -1,10 +1,10 @@
 import { ref, computed, type Ref } from 'vue'
 
-// Shared loyalty-card configuration store. Dashboard's FidelizacionPanel writes
-// here; the public menu's Sidebar teaser reads from here. Persisted to
-// localStorage per slug while the backend endpoint is wired up, so refreshing
-// the page (or switching between dashboard and public preview) keeps the same
-// state — same pattern as `useMenuPrefs`.
+// Shared loyalty-card configuration store. Dashboard's FidelizacionPanel
+// writes here; the public menu's Sidebar teaser reads from here. Backed
+// by `/api/_mock/store/<slug>/loyalty-config` (Nuxt Nitro mock in dev,
+// real Guava API later) so dashboard ↔ public sync survives the process
+// boundary once admin lives in a separate Nuxt app (`guavagram-admin/`).
 
 export type LoyaltyRewardType =
   | 'free_item'
@@ -37,7 +37,7 @@ export interface LoyaltyConfig {
   expirationDays: number
 }
 
-const LS_KEY = 'guava:loyalty-config'
+const API_PREFIX = '/api/_mock/store'
 
 const defaults = (): LoyaltyConfig => ({
   isActive: true,
@@ -58,24 +58,39 @@ const defaults = (): LoyaltyConfig => ({
   expirationDays: 90,
 })
 
-function loadAll(): Record<string, LoyaltyConfig> {
-  if (typeof window === 'undefined') return {}
-  try {
-    const raw = window.localStorage.getItem(LS_KEY)
-    return raw ? JSON.parse(raw) : {}
-  } catch {
-    return {}
-  }
-}
+// Module-scoped per-slug cache. Hydrates lazily on first access (client-only)
+// and PUT-debounces writes the same way `useBioConfig` does.
+const store = ref<Record<string, LoyaltyConfig>>({})
+const hydrating = new Set<string>()
+const pushTimers: Record<string, ReturnType<typeof setTimeout> | null> = {}
 
-function saveAll(all: Record<string, LoyaltyConfig>) {
+async function hydrate(slug: string) {
   if (typeof window === 'undefined') return
-  try { window.localStorage.setItem(LS_KEY, JSON.stringify(all)) } catch { /* ignore */ }
+  if (hydrating.has(slug) || store.value[slug]) return
+  hydrating.add(slug)
+  try {
+    const res = await fetch(`${API_PREFIX}/${encodeURIComponent(slug)}/loyalty-config`)
+    if (res.ok) {
+      const data = await res.json().catch(() => null)
+      if (data) store.value = { ...store.value, [slug]: { ...defaults(), ...data } }
+    }
+  } catch { /* network failure → defaults */ }
+  finally { hydrating.delete(slug) }
 }
 
-// Module-level store so dashboard + sidebar share the same source of truth
-// inside one tab session.
-const store = ref<Record<string, LoyaltyConfig>>(loadAll())
+function schedulePush(slug: string) {
+  if (typeof window === 'undefined') return
+  if (pushTimers[slug]) clearTimeout(pushTimers[slug]!)
+  pushTimers[slug] = setTimeout(() => {
+    const body = store.value[slug]
+    if (!body) return
+    fetch(`${API_PREFIX}/${encodeURIComponent(slug)}/loyalty-config`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    }).catch(() => {})
+  }, 300)
+}
 
 function keyFor(slugOrStoreId: string): string {
   return slugOrStoreId || '__default__'
@@ -87,11 +102,14 @@ export function useLoyaltyConfig(slugRef: Ref<string | null | undefined> | strin
     return keyFor(v || '')
   }
 
+  hydrate(getKey())
+
   const config = computed<LoyaltyConfig>({
     get: () => store.value[getKey()] ?? defaults(),
     set: (next: LoyaltyConfig) => {
-      store.value = { ...store.value, [getKey()]: next }
-      saveAll(store.value)
+      const k = getKey()
+      store.value = { ...store.value, [k]: next }
+      schedulePush(k)
     },
   })
 

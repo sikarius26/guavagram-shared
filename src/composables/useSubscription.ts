@@ -24,49 +24,42 @@ export const PRICES = {
 const LOYALTY_LIMIT_FREE = 15   // lifetime cap
 const LOYALTY_LIMIT_PRO  = 30   // per month
 
-const STORAGE_KEY = 'guavagram.subscription.v1'
-
-// ─── Module-level reactive state (shared across all composable calls) ─────────
+// ─── Module-level reactive state (shared across all composable calls) ────────
+//
+// Cross-app sync (dashboard ↔ public bio) goes through the billing API:
+// `loadSubscription(restaurantId)` GETs `/api/mock/billing/status` and the
+// `devActivateModule` / `devSetPlan` / `devSetLoyaltyUsed` helpers below PUT
+// to `/api/_mock/store/<restaurantId>/subscription` so two browser windows
+// (one on admin, one on public) see the same state after a refresh. The old
+// localStorage cache (`guavagram.subscription.v1`) was dropped because it
+// couldn't survive the upcoming split into two separate Nuxt processes.
 const plan            = ref<SubscriptionPlan>('free')
 const verifiedBadge   = ref(false)
 const activeModules   = ref<Set<GuavaModule>>(new Set())
 const loyaltyCardsUsed = ref(0)
 const loyaltyCardsLimit = computed(() => plan.value === 'pro' ? LOYALTY_LIMIT_PRO : LOYALTY_LIMIT_FREE)
 
-// ─── Persistence helpers (localStorage, dev only) ────────────────────────────
-function saveToStorage() {
-  if (!import.meta.client) return
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      plan: plan.value,
-      verifiedBadge: verifiedBadge.value,
-      activeModules: [...activeModules.value],
-      loyaltyCardsUsed: loyaltyCardsUsed.value,
-    }))
-  } catch {}
-}
+// Last restaurant id we synced against — needed by the dev helpers below so
+// `devActivateModule('bookings')` can PUT to the right slug.
+let currentRestaurantId: string | null = null
+let pushTimer: ReturnType<typeof setTimeout> | null = null
 
-function loadFromStorage() {
-  if (!import.meta.client) return
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return
-    const data = JSON.parse(raw) as {
-      plan: SubscriptionPlan
-      verifiedBadge: boolean
-      activeModules: GuavaModule[]
-      loyaltyCardsUsed: number
-    }
-    plan.value           = data.plan ?? 'free'
-    verifiedBadge.value  = data.verifiedBadge ?? false
-    activeModules.value  = new Set(data.activeModules ?? [])
-    loyaltyCardsUsed.value = data.loyaltyCardsUsed ?? 0
-  } catch {}
-}
-
-// Hydrate on module load (client-side only)
-if (import.meta.client) {
-  loadFromStorage()
+function schedulePush() {
+  if (typeof window === 'undefined') return
+  if (!currentRestaurantId) return
+  if (pushTimer) clearTimeout(pushTimer)
+  pushTimer = setTimeout(() => {
+    fetch(`/api/_mock/store/${encodeURIComponent(currentRestaurantId!)}/subscription`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        plan: plan.value,
+        verifiedBadge: verifiedBadge.value,
+        activeModules: [...activeModules.value],
+        loyaltyCardsUsed: loyaltyCardsUsed.value,
+      }),
+    }).catch(() => {})
+  }, 300)
 }
 
 // ─── Composable ───────────────────────────────────────────────────────────────
@@ -86,6 +79,7 @@ export function useSubscription() {
 
   // ─── Load subscription from mock API ───────────────────────────────────────
   const loadSubscription = async (restaurantId: string) => {
+    currentRestaurantId = restaurantId
     try {
       const data = await $fetch<{
         plan: SubscriptionPlan
@@ -98,10 +92,12 @@ export function useSubscription() {
       verifiedBadge.value   = data.verifiedBadge
       activeModules.value   = new Set(data.activeModules)
       loyaltyCardsUsed.value = data.loyaltyCardsUsed
-      saveToStorage()
     } catch (err) {
-      // Fallback to storage state — don't wipe existing state on network error
-      console.warn('[useSubscription] loadSubscription failed, using cached state', err)
+      // Network error — keep whatever in-memory state we had (defaults if first
+      // call). Cross-app sync was the localStorage cache's only job before;
+      // it's now via the `/api/_mock/store/<id>/subscription` PUT in the dev
+      // helpers below.
+      console.warn('[useSubscription] loadSubscription failed', err)
     }
   }
 
@@ -135,17 +131,17 @@ export function useSubscription() {
   // ─── Dev helper: directly set state (for testing) ──────────────────────────
   const devSetPlan = (p: SubscriptionPlan) => {
     plan.value = p
-    saveToStorage()
+    schedulePush()
   }
 
   const devActivateModule = (m: GuavaModule) => {
     activeModules.value.add(m)
-    saveToStorage()
+    schedulePush()
   }
 
   const devSetLoyaltyUsed = (n: number) => {
     loyaltyCardsUsed.value = n
-    saveToStorage()
+    schedulePush()
   }
 
   return {

@@ -76,7 +76,47 @@ const DEFAULT_ENABLED_TAG_IDS = new Set<string>([
 
 const enabledTagIds = ref<Set<string>>(new Set(DEFAULT_ENABLED_TAG_IDS))
 
+// API-backed persistence (`/api/_mock/store/review-tags`). Hydrates lazily
+// on first call; persists with a 300ms debounce on every toggle/setCategory.
+// Single global store today (mirrors the pre-split module-singleton shape) —
+// will key by slug once the dashboard always carries store context.
+const API_URL = '/api/_mock/store/review-tags'
+
+let hydrated = false
+let hydrating = false
+let pushTimer: ReturnType<typeof setTimeout> | null = null
+
+async function hydrate() {
+  if (typeof window === 'undefined') return
+  if (hydrated || hydrating) return
+  hydrating = true
+  try {
+    const res = await fetch(API_URL)
+    if (res.ok) {
+      const data: { enabled?: string[] } | null = await res.json().catch(() => null)
+      if (data && Array.isArray(data.enabled)) {
+        enabledTagIds.value = new Set(data.enabled)
+      }
+    }
+  } catch { /* network failure → defaults */ }
+  finally { hydrating = false; hydrated = true }
+}
+
+function schedulePush() {
+  if (typeof window === 'undefined' || !hydrated) return
+  if (pushTimer) clearTimeout(pushTimer)
+  pushTimer = setTimeout(() => {
+    fetch(API_URL, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ enabled: Array.from(enabledTagIds.value) }),
+    }).catch(() => {})
+  }, 300)
+}
+
 export function useReviewTags() {
+  hydrate()
+
   const tagById = (id: string) => REVIEW_TAGS.find(t => t.id === id)
 
   const tagsByCategory = computed(() => {
@@ -97,6 +137,7 @@ export function useReviewTags() {
     if (next.has(id)) next.delete(id)
     else next.add(id)
     enabledTagIds.value = next
+    schedulePush()
   }
 
   const setCategoryEnabled = (category: ReviewTagCategory, enabled: boolean) => {
@@ -107,6 +148,7 @@ export function useReviewTags() {
       else next.delete(tag.id)
     }
     enabledTagIds.value = next
+    schedulePush()
   }
 
   return {

@@ -1,4 +1,11 @@
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
+
+// Restaurant media (venue photos + menu item photos). Used by the dashboard's
+// GuavagramPanel/MenuPanel/ReviewsPanel to add/reorder/tag photos, and by the
+// public app's gallery to render them. Backed by `/api/_mock/store/media`
+// (single global store today; will key by slug once the dashboard always has
+// store context) so the photos survive the process boundary once admin lives
+// in a separate Nuxt app.
 
 export type VenueAspect = 'interior' | 'exterior' | 'terraza' | 'barra' | 'equipo' | 'general'
 
@@ -24,14 +31,72 @@ export interface VenuePhoto {
   gradient?: string
 }
 
-const menuItemPhotos = ref<Record<string, { url: string; isVideo: boolean; itemName: string }>>({})
+interface MediaState {
+  venuePhotos: VenuePhoto[]
+  menuItemPhotos: Record<string, { url: string; isVideo: boolean; itemName: string }>
+}
 
-const venuePhotos = ref<VenuePhoto[]>([
-  { id: 'v1', aspect: 'interior', icon: 'mdi-sofa-outline',     color: '#8b5cf6', gradient: 'from-purple-50 to-violet-50' },
-  { id: 'v2', aspect: 'barra',    icon: 'mdi-glass-cocktail',   color: '#f59e0b', gradient: 'from-amber-100 to-orange-100' },
+const API_URL = '/api/_mock/store/media'
+
+const defaultVenuePhotos = (): VenuePhoto[] => ([
+  { id: 'v1', aspect: 'interior', icon: 'mdi-sofa-outline',   color: '#8b5cf6', gradient: 'from-purple-50 to-violet-50' },
+  { id: 'v2', aspect: 'barra',    icon: 'mdi-glass-cocktail', color: '#f59e0b', gradient: 'from-amber-100 to-orange-100' },
 ])
 
+const venuePhotos = ref<VenuePhoto[]>(defaultVenuePhotos())
+const menuItemPhotos = ref<Record<string, { url: string; isVideo: boolean; itemName: string }>>({})
+
+let hydrated = false
+let hydrating = false
+let pushTimer: ReturnType<typeof setTimeout> | null = null
+
+async function hydrate() {
+  if (typeof window === 'undefined') return
+  if (hydrated || hydrating) return
+  hydrating = true
+  try {
+    const res = await fetch(API_URL)
+    if (res.ok) {
+      const data: MediaState | null = await res.json().catch(() => null)
+      if (data) {
+        if (Array.isArray(data.venuePhotos)) venuePhotos.value = data.venuePhotos
+        if (data.menuItemPhotos && typeof data.menuItemPhotos === 'object') menuItemPhotos.value = data.menuItemPhotos
+      }
+    }
+  } catch { /* network failure → defaults */ }
+  finally { hydrating = false; hydrated = true }
+}
+
+function schedulePush() {
+  if (typeof window === 'undefined') return
+  if (!hydrated) return // skip until after hydration so first PUT doesn't overwrite real data with defaults
+  if (pushTimer) clearTimeout(pushTimer)
+  pushTimer = setTimeout(() => {
+    const body: MediaState = {
+      venuePhotos: venuePhotos.value,
+      menuItemPhotos: menuItemPhotos.value,
+    }
+    fetch(API_URL, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    }).catch(() => {})
+  }, 300)
+}
+
+// One global watcher persists any mutation to either ref.
+let watchersAttached = false
+function attachWatchersOnce() {
+  if (watchersAttached) return
+  watchersAttached = true
+  watch(venuePhotos, schedulePush, { deep: true })
+  watch(menuItemPhotos, schedulePush, { deep: true })
+}
+
 export function useRestaurantMedia() {
+  hydrate()
+  attachWatchersOnce()
+
   const setMenuPhoto = (itemId: string, itemName: string, url: string, isVideo: boolean) => {
     menuItemPhotos.value[itemId] = { url, isVideo, itemName }
   }

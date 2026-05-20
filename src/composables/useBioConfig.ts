@@ -1,9 +1,11 @@
 import { ref, computed, type Ref } from 'vue'
 
-// Shared restaurant-bio config: dashboard's GuavagramPanel writes here, public
-// `/r/[slug]/bio` reads from here. Mirrors the `useLoyaltyConfig` pattern.
-// Persisted to localStorage per slug until the backend exposes a real
-// dashboard-profile endpoint we can call from both surfaces.
+// Shared restaurant-bio config: dashboard's GuavagramPanel writes here, the
+// public `/r/[slug]/bio` reads from here. Now backed by a backend endpoint
+// (`/api/_mock/store/<slug>/bio-config` in dev, a real Guava API later) so
+// the dashboard and the public bio survive the process boundary once admin
+// lives in a separate Nuxt app (`guavagram-admin/`). Hydrates lazily on
+// first call client-side; PUTs are debounced 300ms.
 
 export type BioSkinId = 'classic' | 'editorial' | 'portada' | 'showcase'
 export type BioTypography = 'sans' | 'serif' | 'rounded' | 'mono'
@@ -121,7 +123,9 @@ export interface BioConfig {
   rating: number
 }
 
-const LS_KEY = 'guava:bio-config'
+// Endpoint prefix. Both apps include the matching server route
+// (see `server/api/_mock/store/[slug]/bio-config.{get,put}.ts`).
+const API_PREFIX = '/api/_mock/store'
 
 const defaults = (): BioConfig => ({
   description: '',
@@ -199,21 +203,41 @@ const defaults = (): BioConfig => ({
   rating: 4.8,
 })
 
-function loadAll(): Record<string, BioConfig> {
-  if (typeof window === 'undefined') return {}
-  try {
-    const raw = window.localStorage.getItem(LS_KEY)
-    return raw ? JSON.parse(raw) : {}
-  } catch { return {} }
-}
+// Module-scoped per-slug cache, hydrated lazily from the API on first
+// access (client-only) and PUT-debounced on writes. Two components in the
+// same app reading the same slug share the same source of truth.
+const store = ref<Record<string, BioConfig>>({})
+const hydrating = new Set<string>()
+const pushTimers: Record<string, ReturnType<typeof setTimeout> | null> = {}
 
-function saveAll(all: Record<string, BioConfig>) {
+async function hydrate(slug: string) {
   if (typeof window === 'undefined') return
-  try { window.localStorage.setItem(LS_KEY, JSON.stringify(all)) } catch { /* ignore */ }
+  if (hydrating.has(slug)) return
+  if (store.value[slug]) return
+  hydrating.add(slug)
+  try {
+    const res = await fetch(`${API_PREFIX}/${encodeURIComponent(slug)}/bio-config`)
+    if (res.ok) {
+      const data = await res.json().catch(() => null)
+      if (data) store.value = { ...store.value, [slug]: withDefaults(data) }
+    }
+  } catch { /* network failure → fall through to defaults */ }
+  finally { hydrating.delete(slug) }
 }
 
-// Module-scoped store so dashboard + public bio share the same source of truth.
-const store = ref<Record<string, BioConfig>>(loadAll())
+function schedulePush(slug: string) {
+  if (typeof window === 'undefined') return
+  if (pushTimers[slug]) clearTimeout(pushTimers[slug]!)
+  pushTimers[slug] = setTimeout(() => {
+    const body = store.value[slug]
+    if (!body) return
+    fetch(`${API_PREFIX}/${encodeURIComponent(slug)}/bio-config`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    }).catch(() => { /* swallow — UI already optimistic */ })
+  }, 300)
+}
 
 function keyFor(slug: string): string {
   return slug || '__default__'
@@ -245,11 +269,16 @@ export function useBioConfig(slugRef: Ref<string | null | undefined> | string) {
     return keyFor(v || '')
   }
 
+  // Trigger lazy hydration on first call. Safe to call repeatedly; the
+  // function early-outs if already hydrated or in-flight.
+  hydrate(getKey())
+
   const config = computed<BioConfig>({
     get: () => withDefaults(store.value[getKey()]),
     set: (next: BioConfig) => {
-      store.value = { ...store.value, [getKey()]: next }
-      saveAll(store.value)
+      const k = getKey()
+      store.value = { ...store.value, [k]: next }
+      schedulePush(k)
     },
   })
 
