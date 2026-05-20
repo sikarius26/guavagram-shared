@@ -21,7 +21,7 @@ import { environment } from '../../environment'
 export interface IPublicUserApiClient {
     publicUserGet(handle: string): Promise<UserProfileViewModel>;
     publicUserStores(handle: string): Promise<UserStoreViewModel[]>;
-    publicUserGet(): Promise<UserProfileViewModel[]>;
+    publicUserList(): Promise<UserProfileViewModel[]>;
 }
 
 
@@ -156,7 +156,7 @@ class PublicUserApiClient implements IPublicUserApiClient {
     }
 
 
-    publicUserGet( cancelToken?: CancelToken | undefined): Promise<UserProfileViewModel[]> {
+    publicUserList( cancelToken?: CancelToken | undefined): Promise<UserProfileViewModel[]> {
         let url_ = this.baseUrl + "/public/user";
         url_ = url_.replace(/[?&]$/, "");
 
@@ -176,11 +176,11 @@ class PublicUserApiClient implements IPublicUserApiClient {
                 throw _error;
             }
         }).then((_response: AxiosResponse) => {
-            return this.processGetpublicUserGet(_response);
+            return this.processGetpublicUserList(_response);
         });
     }
 
-    protected processGetpublicUserGet(response: AxiosResponse): Promise<UserProfileViewModel[]> {
+    protected processGetpublicUserList(response: AxiosResponse): Promise<UserProfileViewModel[]> {
         const status = response.status;
         let _headers: any = {};
         if (response.headers && typeof response.headers === "object") {
