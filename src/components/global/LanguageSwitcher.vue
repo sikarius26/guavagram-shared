@@ -111,6 +111,14 @@ onBeforeUnmount(() => {
             <span v-if="!compact" class="mdi mdi-chevron-down text-xs transition-transform" :class="open ? 'rotate-180' : ''" aria-hidden="true"></span>
         </button>
 
+        <!--
+            ClientOnly around Teleport so SSR doesn't serialize the dropdown
+            portal at the wrong DOM location and trip a hydration mismatch
+            ("rendered on server: <div ...> / expected on client:
+            Symbol(v-cmt)"). The dropdown only opens on user click anyway,
+            so client-only rendering loses nothing.
+        -->
+        <ClientOnly>
         <Teleport to="body">
             <div
                 v-show="open"
@@ -133,6 +141,7 @@ onBeforeUnmount(() => {
                 </button>
             </div>
         </Teleport>
+        </ClientOnly>
     </div>
 </template>
 
