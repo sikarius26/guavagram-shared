@@ -396,5 +396,6 @@
     "bioSecBookings": "Bookings",
     "bioSecBookingsDesc": "Calendar widget with turns and promos",
     "bioSecHiring": "Hiring",
-    "bioSecHiringDesc": "Open job listings at your venue"
+    "bioSecHiringDesc": "Open job listings at your venue",
+    "yourStore": "Your store"
 }

@@ -388,5 +388,6 @@
     "bioSecBookings": "Reservas",
     "bioSecBookingsDesc": "Widget de calendario con turnos y promociones",
     "bioSecHiring": "Empleo",
-    "bioSecHiringDesc": "Ofertas de trabajo abiertas en tu local"
+    "bioSecHiringDesc": "Ofertas de trabajo abiertas en tu local",
+    "yourStore": "Tu restaurante"
 }
