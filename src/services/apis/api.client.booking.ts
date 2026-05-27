@@ -1,5 +1,6 @@
 import { BookingRequest } from './models/booking-request';
 import { BookingViewModel } from './models/booking-view-model';
+import { BookingShiftViewModel } from './models/booking-shift-view-model';
 import { PlaceBookingResponse } from './models/place-booking-response';
 import { ReceiptViewModel } from './models/receipt-view-model';
 //----------------------
@@ -26,6 +27,12 @@ export interface IBookingApiClient {
     bookingGet(id: string, email?: string | null | undefined): Promise<BookingViewModel>;
     bookingPut(request: BookingRequest): Promise<PlaceBookingResponse>;
     bookingReceipt(receiptId: string): Promise<ReceiptViewModel>;
+    /** GET {baseUrl}/{storeId}/booking/shifts — lista todos los turnos del store. */
+    bookingShifts(storeId: string): Promise<BookingShiftViewModel[]>;
+    /** POST {baseUrl}/{storeId}/booking/shift — crea o actualiza un turno (upsert por id). */
+    bookingShiftPost(storeId: string, shift: BookingShiftViewModel): Promise<void>;
+    /** DELETE {baseUrl}/{storeId}/booking/shift/{shiftId} — borra el turno por id. */
+    bookingShiftDelete(storeId: string, shiftId: string): Promise<void>;
 }
 
 
@@ -319,6 +326,137 @@ class BookingApiClient implements IBookingApiClient {
             return throwException("An unexpected server error occurred.", status, _responseText, _headers);
         }
         return Promise.resolve<ReceiptViewModel>(null as any);
+    }
+
+    // ─── Booking shifts (turnos) ──────────────────────────────────────────
+    // Ported from GuavaPlatform's BookingApiClient. The dashboard's bio
+    // editor (`GuavagramPanel.vue`) uses these to sync the configured
+    // `bookingAvailability` turnos with the backend, which then surfaces
+    // them in `StoreInfoViewModel.bookingShifts` for the public widget.
+
+    bookingShifts(storeId: string, cancelToken?: CancelToken | undefined): Promise<BookingShiftViewModel[]> {
+        let url_ = this.baseUrl + "/{storeId}/booking/shifts";
+        if (storeId === undefined || storeId === null)
+            throw new Error("The parameter 'storeId' must be defined.");
+        url_ = url_.replace("{storeId}", encodeURIComponent("" + storeId));
+        url_ = url_.replace(/[?&]$/, "");
+
+        let options_: AxiosRequestConfig = {
+            method: "Get",
+            url: url_,
+            headers: { "Accept": "application/json" },
+            cancelToken
+        };
+
+        return this.instance.request(options_).catch((_error: any) => {
+            if (isAxiosError(_error) && _error.response) return _error.response;
+            throw _error;
+        }).then((_response: AxiosResponse) => this.processGetbookingShifts(_response));
+    }
+
+    protected processGetbookingShifts(response: AxiosResponse): Promise<BookingShiftViewModel[]> {
+        const status = response.status;
+        let _headers: any = {};
+        if (response.headers && typeof response.headers === "object") {
+            for (let k in response.headers) {
+                if (response.headers.hasOwnProperty(k)) _headers[k] = response.headers[k];
+            }
+        }
+        let _mappings: { source: any, target: any }[] = [];
+        if (status === 200) {
+            const _responseText = response.data;
+            let result200: any = null;
+            let resultData200 = _responseText;
+            if (Array.isArray(resultData200)) {
+                result200 = [];
+                for (let item of resultData200) result200.push(BookingShiftViewModel.fromJS(item, _mappings));
+            } else {
+                result200 = null;
+            }
+            return Promise.resolve<BookingShiftViewModel[]>(result200);
+        } else if (status !== 200 && status !== 204) {
+            const _responseText = response.data;
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+        }
+        return Promise.resolve<BookingShiftViewModel[]>(null as any);
+    }
+
+    bookingShiftPost(storeId: string, shift: BookingShiftViewModel, cancelToken?: CancelToken | undefined): Promise<void> {
+        let url_ = this.baseUrl + "/{storeId}/booking/shift";
+        if (storeId === undefined || storeId === null)
+            throw new Error("The parameter 'storeId' must be defined.");
+        url_ = url_.replace("{storeId}", encodeURIComponent("" + storeId));
+        url_ = url_.replace(/[?&]$/, "");
+
+        const content_ = JSON.stringify(shift);
+
+        let options_: AxiosRequestConfig = {
+            data: content_,
+            method: "Post",
+            url: url_,
+            headers: { "Content-Type": "application/json" },
+            cancelToken
+        };
+
+        return this.instance.request(options_).catch((_error: any) => {
+            if (isAxiosError(_error) && _error.response) return _error.response;
+            throw _error;
+        }).then((_response: AxiosResponse) => this.processPostbookingShiftPost(_response));
+    }
+
+    protected processPostbookingShiftPost(response: AxiosResponse): Promise<void> {
+        const status = response.status;
+        let _headers: any = {};
+        if (response.headers && typeof response.headers === "object") {
+            for (let k in response.headers) {
+                if (response.headers.hasOwnProperty(k)) _headers[k] = response.headers[k];
+            }
+        }
+        if (status === 200) return Promise.resolve<void>(null as any);
+        if (status !== 200 && status !== 204) {
+            const _responseText = response.data;
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+        }
+        return Promise.resolve<void>(null as any);
+    }
+
+    bookingShiftDelete(storeId: string, shiftId: string, cancelToken?: CancelToken | undefined): Promise<void> {
+        let url_ = this.baseUrl + "/{storeId}/booking/shift/{shiftId}";
+        if (storeId === undefined || storeId === null)
+            throw new Error("The parameter 'storeId' must be defined.");
+        url_ = url_.replace("{storeId}", encodeURIComponent("" + storeId));
+        if (shiftId === undefined || shiftId === null)
+            throw new Error("The parameter 'shiftId' must be defined.");
+        url_ = url_.replace("{shiftId}", encodeURIComponent("" + shiftId));
+        url_ = url_.replace(/[?&]$/, "");
+
+        let options_: AxiosRequestConfig = {
+            method: "Delete",
+            url: url_,
+            headers: {},
+            cancelToken
+        };
+
+        return this.instance.request(options_).catch((_error: any) => {
+            if (isAxiosError(_error) && _error.response) return _error.response;
+            throw _error;
+        }).then((_response: AxiosResponse) => this.processDeletebookingShiftDelete(_response));
+    }
+
+    protected processDeletebookingShiftDelete(response: AxiosResponse): Promise<void> {
+        const status = response.status;
+        let _headers: any = {};
+        if (response.headers && typeof response.headers === "object") {
+            for (let k in response.headers) {
+                if (response.headers.hasOwnProperty(k)) _headers[k] = response.headers[k];
+            }
+        }
+        if (status === 200) return Promise.resolve<void>(null as any);
+        if (status !== 200 && status !== 204) {
+            const _responseText = response.data;
+            return throwException("An unexpected server error occurred.", status, _responseText, _headers);
+        }
+        return Promise.resolve<void>(null as any);
     }
 
     protected throwException(message: string, status: number, response: string, headers: { [key: string]: any; }, result?: any): any {

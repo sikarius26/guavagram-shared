@@ -4,10 +4,11 @@
 // branded GuavaGram skin, address, schedule, suggested top picks and one
 // promo banner — enough to render the public bio end-to-end.
 
-import { StoreProfileViewModel } from '~/services/apis/models/store-profile-view-model'
-import { StoreInfoViewModel } from '~/services/apis/models/store-info-view-model'
-import { MenuViewModel } from '~/services/apis/models/menu-view-model'
-import { PromotionViewModel } from '~/services/apis/models/promotion-view-model'
+import { StoreProfileViewModel } from '../models/store-profile-view-model'
+import { StoreInfoViewModel } from '../models/store-info-view-model'
+import { MenuViewModel } from '../models/menu-view-model'
+import { PromotionViewModel } from '../models/promotion-view-model'
+import type { BioConfig } from '../../../composables/useBioConfig'
 
 const u = (id: string, w = 800, h = 1000) =>
   `https://images.unsplash.com/photo-${id}?w=${w}&h=${h}&fit=crop&q=80&auto=format`
@@ -976,6 +977,61 @@ const resolveSlug = (slug: string): string => {
   return slug
 }
 
+// Initial bio-config seed for the public bio + dashboard editor when nothing
+// has been saved yet. Without this, useBioConfig defaults (skinId 'classic',
+// empty cover, etc.) silently override the mock's editorial/portada skin and
+// the public page renders disconnected from what the editor will show.
+const DAY_LABELS_ES = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'] as const
+const WEEKDAY_KEYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const
+
+export function getMockBioConfigSeed(slug: string): Partial<BioConfig> | null {
+  const m = MOCK_STORE_BIOS.find(b => b.slug === resolveSlug(slug))
+  if (!m) return null
+
+  const hoursData = WEEKDAY_KEYS.map((key, idx) => {
+    const row = m.weeklySchedule[key]
+    return row && row.isOpen
+      ? { day: DAY_LABELS_ES[idx]!, open: row.openTime, close: row.closeTime, closed: false }
+      : { day: DAY_LABELS_ES[idx]!, open: '', close: '', closed: true }
+  })
+
+  const socials = Object.entries(m.externalLinks)
+    .filter(([, url]) => !!url)
+    .map(([key, url]) => ({ key, url: url as string }))
+
+  return {
+    description: m.description,
+    coverUrl: m.cover,
+    logoUrl: m.logoUrl,
+
+    accentColor: m.accentColor,
+    bgColor: m.pageBackgroundColor,
+    useDarkMode: m.useDarkMode,
+    skinId: m.skin,
+    skinTypography: m.skin === 'editorial' ? 'serif' : 'sans',
+    skinRadius: 'rounded',
+    pageBgMode: 'solid',
+    pageTextureTint: m.accentColor,
+
+    profileData: { name: m.name, contactPhone: m.phoneNumber },
+
+    locationData: {
+      addressLine: m.address.line1,
+      address: `${m.address.line1}, ${m.address.city}`,
+      phone: m.phoneNumber,
+    },
+    hoursData,
+
+    socials,
+
+    // Loyalty card config (used by /loyalty + the bio's "Fidelización" widget).
+    ...(m.loyalty ? { loyaltyData: m.loyalty } : {}),
+
+    priceRange: m.priceRange,
+    rating: m.rating,
+  }
+}
+
 export function getMockStoreProfile(slug: string): StoreProfileViewModel | null {
   const m = MOCK_STORE_BIOS.find(b => b.slug === resolveSlug(slug))
   if (!m) return null
@@ -987,9 +1043,19 @@ export function getMockStoreProfile(slug: string): StoreProfileViewModel | null 
     googlePlaceId: undefined,
     description: m.description,
     phoneNumber: m.phoneNumber,
+    // logo + cover + loyalty inside brandingSettings mirror what a real
+    // dashboard save persists (see bioConfigToPlatform): StoreProfileViewModel
+    // has no native columns for these and its serializer drops undeclared keys,
+    // so the bag is the only thing that round-trips. Keeps useBioConfig — and
+    // thus the public bio AND the loyalty landing — in sync with "Ajustes".
     brandingSettings: {
       accentColor: m.accentColor,
       isDarkMode: m.useDarkMode,
+      coverUrl: m.cover,
+      logoUrl: m.logoUrl,
+      loyaltyData: m.loyalty,
+      // Venue photos the public bio's "Galería" section + lightbox render.
+      galleryImages: m.gallery,
       pageBackgroundMode: 'solid',
       pageBackgroundColor: m.pageBackgroundColor,
       pageTextureTint: m.accentColor,

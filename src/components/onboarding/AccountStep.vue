@@ -45,10 +45,10 @@ const canProceed = computed(() => false)
     :can-go-back="false"
     :can-proceed="canProceed"
     :is-loading="flow.isLoading.value"
+    hide-next
     @back="flow.back()"
     @next="() => {}"
   >
-    <!-- Hide StepShell next button visually since we auto-advance -->
     <template v-if="!showEmailForm">
       <div class="flex flex-col gap-1.5">
         <label class="text-sm font-semibold text-text-main ml-1">Continuar con Google</label>

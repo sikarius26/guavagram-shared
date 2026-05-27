@@ -1,5 +1,9 @@
 <script setup lang="ts">
-defineProps<{
+// `hideNext` lets steps that own their own primary CTA (AccountStep, where
+// Google's button + the email form's "Crear cuenta" already advance) opt
+// out of the trailing shell button — otherwise the user sees two greens
+// stacked.
+withDefaults(defineProps<{
   title: string
   subtitle?: string
   step: number
@@ -8,7 +12,8 @@ defineProps<{
   canProceed: boolean
   nextLabel?: string
   isLoading?: boolean
-}>()
+  hideNext?: boolean
+}>(), { hideNext: false })
 
 const emit = defineEmits<{
   back: []
@@ -33,13 +38,13 @@ const emit = defineEmits<{
       <slot />
     </div>
 
-    <div class="flex items-center gap-3 mt-7">
+    <div v-if="canGoBack || !hideNext" class="flex items-center gap-3 mt-7">
       <button v-if="canGoBack" type="button" @click="emit('back')"
         aria-label="Atrás"
         class="h-12 w-12 shrink-0 rounded-full border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 text-gray-700 dark:text-white/80 hover:bg-gray-50 dark:hover:bg-white/10 flex items-center justify-center transition-all">
         <span class="mdi mdi-arrow-left text-xl"></span>
       </button>
-      <button type="button" :disabled="!canProceed || isLoading" @click="emit('next')"
+      <button v-if="!hideNext" type="button" :disabled="!canProceed || isLoading" @click="emit('next')"
         class="flex-1 h-12 rounded-full bg-gradient-emerald hover:bg-gradient-emerald-hover text-white font-medium text-base flex items-center justify-center gap-2 shadow-pill-emerald disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98] transition-all">
         <span v-if="isLoading" class="mdi mdi-loading animate-spin text-lg"></span>
         <template v-else>

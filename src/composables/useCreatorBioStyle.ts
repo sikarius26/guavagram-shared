@@ -17,6 +17,21 @@ export type CreatorBioStyle = {
   pageTextureTint: string
 }
 
+// Per-section visibility flags. Mirrors the sections rendered by
+// CreatorBioLayout. Defaults to all visible; user toggles via the editor.
+export type CreatorBioVisibility = {
+  cover: boolean
+  avatar: boolean
+  identity: boolean
+  tags: boolean
+  featured: boolean
+  recommended: boolean
+  reviews: boolean
+  wishlist: boolean
+  engage: boolean
+  social: boolean
+}
+
 const DEFAULT_STYLE: CreatorBioStyle = {
   accentColor: '#ff2d23',
   bgColor: '#ffffff',
@@ -30,7 +45,21 @@ const DEFAULT_STYLE: CreatorBioStyle = {
   pageTextureTint: '#ff6b4a',
 }
 
+const DEFAULT_VISIBILITY: CreatorBioVisibility = {
+  cover: true,
+  avatar: true,
+  identity: true,
+  tags: true,
+  featured: true,
+  recommended: true,
+  reviews: true,
+  wishlist: true,
+  engage: true,
+  social: true,
+}
+
 const style = ref<CreatorBioStyle>({ ...DEFAULT_STYLE })
+const visibility = ref<CreatorBioVisibility>({ ...DEFAULT_VISIBILITY })
 const isDirty = ref(false)
 
 // ── Color utils ─────────────────────────────────────────────────────────────
@@ -80,10 +109,45 @@ export function useCreatorBioStyle() {
     isDirty.value = true
   }
 
-  const reset = () => {
-    style.value = { ...DEFAULT_STYLE }
+  const updateVisibility = <K extends keyof CreatorBioVisibility>(key: K, value: CreatorBioVisibility[K]) => {
+    visibility.value = { ...visibility.value, [key]: value }
     isDirty.value = true
   }
+
+  const toggleVisibility = (key: keyof CreatorBioVisibility) => {
+    visibility.value = { ...visibility.value, [key]: !visibility.value[key] }
+    isDirty.value = true
+  }
+
+  const reset = () => {
+    style.value = { ...DEFAULT_STYLE }
+    visibility.value = { ...DEFAULT_VISIBILITY }
+    isDirty.value = true
+  }
+
+  // Hydrate from a brandingSettings JSON string (as stored on the user
+  // profile). Tolerates missing keys; falls back to defaults.
+  const hydrateFromBranding = (raw: unknown) => {
+    if (!raw) return
+    let parsed: any = raw
+    if (typeof raw === 'string') {
+      try { parsed = JSON.parse(raw) } catch { return }
+    }
+    if (parsed && typeof parsed === 'object') {
+      if (parsed.style && typeof parsed.style === 'object') {
+        style.value = { ...DEFAULT_STYLE, ...parsed.style }
+      }
+      if (parsed.visibility && typeof parsed.visibility === 'object') {
+        visibility.value = { ...DEFAULT_VISIBILITY, ...parsed.visibility }
+      }
+    }
+    isDirty.value = false
+  }
+
+  // Serialize current style + visibility to the brandingSettings JSON string
+  // that gets persisted on the user profile.
+  const serializeBranding = (): string =>
+    JSON.stringify({ style: style.value, visibility: visibility.value })
 
   // CSS vars that cascade to the whole preview. Every Public* component can
   // reference these to adopt the current theme (bg, cards, borders, text).
@@ -136,7 +200,19 @@ export function useCreatorBioStyle() {
     } as Record<string, string>
   })
 
-  return { style, isDirty, update, reset, previewRootStyle, themeVars }
+  return {
+    style,
+    visibility,
+    isDirty,
+    update,
+    updateVisibility,
+    toggleVisibility,
+    reset,
+    previewRootStyle,
+    themeVars,
+    hydrateFromBranding,
+    serializeBranding,
+  }
 }
 
 export const CREATOR_TAG_SUGGESTIONS: string[] = [

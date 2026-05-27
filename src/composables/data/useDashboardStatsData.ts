@@ -1,48 +1,38 @@
-// Restaurant dashboard KPI accessor. Calls the real backend overview
-// endpoint and normalizes its payload into the display shape the home
-// dashboard already consumes (display strings, sparkline series, deltas).
+// Restaurant dashboard KPI accessor. Wires the home cards to the real
+// Platform endpoints — we deliberately fetch from three different sources
+// instead of waiting for a single `/dashboard/overview` endpoint that
+// doesn't exist yet:
 //
-// Until the user has a storeId we return zeroed values so the dashboard
-// can render its loading state without conditionals everywhere.
+//   - avgRating         ← storeprofileReviewsSummary  (per-period or all-time)
+//   - vouchersRedeemed  ← campaignSummary.totalVouchersRedeemed
+//   - loyaltyMembers    ← customerRecap.totalCustomers (best available
+//                         proxy — there's no dedicated "loyalty enrollment
+//                         count" endpoint, and totalCustomers represents the
+//                         universe of identified customers in the store)
+//
+// profileViews and ctaClicks have NO Platform endpoint. The home renders
+// upgrade CTAs in those slots; this composable does not return them.
+// When/if the Platform adds a bio-analytics endpoint, extend `Overview`
+// and add a fourth fetch alongside the others.
 
 import { ref, watch, computed, type ComputedRef, type Ref } from 'vue'
-import { dashboardApiClient } from '~/services/apis/api.client.dashboard'
-import type { DashboardOverviewResponse } from '~/services/apis/models/dashboard-overview-response'
-import type { DashboardKpiCard } from '~/services/apis/models/dashboard-kpi-card'
-import { applyVerificationState } from '~/composables/useVerification'
+import { storeProfileApiClient } from '~/services/apis/api.client.storeprofile'
+import { customerApiClient } from '~/services/apis/api.client.customer'
+import { campaignApiClient } from '~/services/apis/api.client.campaign'
 
 export interface DashboardOverviewKpi {
   /** Pre-formatted human display ("1.2k", "87", "4.8"). */
   display: string
   /** Raw numeric value — useful for sorting / sparklines. */
   value: number
-  /** Pre-formatted delta string ("+12.5%", "−3.2%") — undefined when no prior period to compare. */
-  delta?: string
-  /** Daily series for the sparkline. Length matches the requested window. */
-  series: number[]
 }
 
 export interface DashboardOverview {
-  profileViews: DashboardOverviewKpi
-  ctaClicks: DashboardOverviewKpi
-  fidelityCards: DashboardOverviewKpi
   avgRating: DashboardOverviewKpi
-  plan: {
-    currentPlanName?: string
-    isPro: boolean
-    upgradePlanId?: string
-    upgradePlanName?: string
-    proMonthlyPrice: number
-    currency: string
-    trialDays: number
-  }
+  vouchersRedeemed: DashboardOverviewKpi
   loyalty: {
     membersDisplay: string
     membersCount: number
-  }
-  verification: {
-    isVerified: boolean
-    daysUntilHidden: number | null
   }
 }
 
@@ -54,8 +44,6 @@ export interface UseDashboardStatsDataReturn {
 }
 
 // ─── Display helpers ────────────────────────────────────────────────
-// Numbers compress to "1.2k", "12.3M" once they get past 1k so the cards
-// never show a 7-digit string that breaks the layout.
 const formatCompact = (n: number): string => {
   if (Math.abs(n) >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`
   if (Math.abs(n) >= 1_000) return `${(n / 1_000).toFixed(1).replace(/\.0$/, '')}k`
@@ -64,68 +52,14 @@ const formatCompact = (n: number): string => {
 
 const formatRating = (n: number): string => n > 0 ? n.toFixed(1) : '—'
 
-const formatDelta = (deltaPercent: number | null | undefined): string | undefined => {
-  if (deltaPercent == null) return undefined
-  const sign = deltaPercent >= 0 ? '+' : ''
-  return `${sign}${deltaPercent.toFixed(1)}%`
-}
-
-// Backend returns ISO codes; cards prefer the symbol (mock historically used '€').
-const CURRENCY_SYMBOLS: Record<string, string> = { EUR: '€', USD: '$', GBP: '£' }
-const currencySymbol = (iso?: string): string => CURRENCY_SYMBOLS[(iso || 'EUR').toUpperCase()] ?? (iso || '€')
-
-const ratingFromCard = (card: DashboardKpiCard | undefined | null): DashboardOverviewKpi => ({
-  display: formatRating(card?.value ?? 0),
-  value: card?.value ?? 0,
-  delta: formatDelta(card?.deltaPercent),
-  series: card?.series ?? [],
-})
-
-const countFromCard = (card: DashboardKpiCard | undefined | null): DashboardOverviewKpi => ({
-  display: formatCompact(card?.value ?? 0),
-  value: card?.value ?? 0,
-  delta: formatDelta(card?.deltaPercent),
-  series: card?.series ?? [],
-})
-
-const EMPTY_KPI: DashboardOverviewKpi = { display: '0', value: 0, series: [] }
 const EMPTY_OVERVIEW: DashboardOverview = {
-  profileViews: EMPTY_KPI,
-  ctaClicks: EMPTY_KPI,
-  fidelityCards: EMPTY_KPI,
-  avgRating: { display: '—', value: 0, series: [] },
-  plan: { isPro: false, proMonthlyPrice: 0, currency: 'EUR', trialDays: 0 },
+  avgRating: { display: '—', value: 0 },
+  vouchersRedeemed: { display: '0', value: 0 },
   loyalty: { membersDisplay: '0', membersCount: 0 },
-  verification: { isVerified: false, daysUntilHidden: null },
 }
-
-const mapResponse = (res: DashboardOverviewResponse): DashboardOverview => ({
-  profileViews: countFromCard(res.profileViews),
-  ctaClicks: countFromCard(res.ctaClicks),
-  fidelityCards: countFromCard(res.fidelityCards),
-  avgRating: ratingFromCard(res.avgRating),
-  plan: {
-    currentPlanName: res.plan?.currentPlanName ?? undefined,
-    isPro: res.plan?.isPro ?? false,
-    upgradePlanId: res.plan?.upgradePlanId ?? undefined,
-    upgradePlanName: res.plan?.upgradePlanName ?? undefined,
-    proMonthlyPrice: res.plan?.upgradeMonthlyPrice ?? 0,
-    currency: currencySymbol(res.plan?.currency ?? 'EUR'),
-    trialDays: res.plan?.upgradeTrialDays ?? 0,
-  },
-  loyalty: {
-    membersDisplay: formatCompact(res.loyaltyMembers ?? 0),
-    membersCount: res.loyaltyMembers ?? 0,
-  },
-  verification: {
-    isVerified: res.verification?.isVerified ?? false,
-    daysUntilHidden: res.verification?.daysUntilHidden ?? null,
-  },
-})
 
 export function useDashboardStatsData(
   storeId?: Ref<string> | (() => string),
-  days = 30,
 ): UseDashboardStatsDataReturn {
   const idRef = typeof storeId === 'function' ? computed(storeId) : storeId
 
@@ -133,20 +67,37 @@ export function useDashboardStatsData(
   const isLoading = ref(false)
   const error = ref<Error | null>(null)
 
-  const fetchOverview = async () => {
+  // Each endpoint can fail independently — wrap each in its own catch so a
+  // 404 on, say, campaignSummary doesn't blank out the rating card too.
+  const fetchAll = async () => {
     const id = idRef?.value
     if (!id) { data.value = EMPTY_OVERVIEW; return }
     isLoading.value = true
     error.value = null
     try {
-      const res = await dashboardApiClient.dashboardOverview(id, days)
-      data.value = mapResponse(res)
-      // Sync verification banner state with the same payload — avoids a
-      // second round-trip just to know whether the store is verified.
-      applyVerificationState({
-        isVerified: res.verification?.isVerified ?? false,
-        daysUntilHidden: res.verification?.daysUntilHidden ?? null,
-      })
+      const [reviewsRes, recapRes, campaignsRes] = await Promise.allSettled([
+        storeProfileApiClient.storeprofileReviewsSummary(id, null, null),
+        customerApiClient.customerRecap(id),
+        campaignApiClient.campaignSummary(id),
+      ])
+
+      const avg = reviewsRes.status === 'fulfilled' ? (reviewsRes.value?.avgOverall ?? 0) : 0
+      const totalCustomers = recapRes.status === 'fulfilled' ? (recapRes.value?.totalCustomers ?? 0) : 0
+      const redeemed = campaignsRes.status === 'fulfilled' ? (campaignsRes.value?.totalVouchersRedeemed ?? 0) : 0
+
+      data.value = {
+        avgRating: { display: formatRating(avg), value: avg },
+        vouchersRedeemed: { display: formatCompact(redeemed), value: redeemed },
+        loyalty: { membersDisplay: formatCompact(totalCustomers), membersCount: totalCustomers },
+      }
+
+      // Surface any of the individual rejections as a soft error so the UI
+      // can show a stale-data hint if needed. Not blocking — partial data is
+      // still useful.
+      const firstFailure = [reviewsRes, recapRes, campaignsRes].find(r => r.status === 'rejected')
+      if (firstFailure && firstFailure.status === 'rejected') {
+        error.value = firstFailure.reason as Error
+      }
     } catch (e) {
       error.value = e as Error
       data.value = EMPTY_OVERVIEW
@@ -155,14 +106,13 @@ export function useDashboardStatsData(
     }
   }
 
-  // Fetch on mount and whenever the storeId changes.
-  if (idRef) watch(idRef, fetchOverview, { immediate: true })
-  else fetchOverview()
+  if (idRef) watch(idRef, fetchAll, { immediate: true })
+  else fetchAll()
 
   return {
     overview: computed(() => data.value),
     isLoading: computed(() => isLoading.value),
     error: computed(() => error.value),
-    refresh: fetchOverview,
+    refresh: fetchAll,
   }
 }

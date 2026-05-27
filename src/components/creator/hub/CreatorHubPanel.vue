@@ -143,7 +143,7 @@ const activeTabLabel = computed(() => tabs.find(t => t.id === activeTab.value)?.
               </li>
             </ul>
 
-            <NuxtLink to="/creator?tab=bio"
+            <NuxtLink to="/creator-dashboard/bio"
               class="mt-6 flex items-center justify-center gap-1.5 w-full py-3.5 rounded-xl bg-[#1a1c1b] text-white text-[13px] font-black hover:bg-[#2a2a2a] transition-colors">
               Empezar: añadir restaurantes a mi bio
               <span class="mdi mdi-arrow-right text-[14px]"></span>

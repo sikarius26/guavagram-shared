@@ -14,7 +14,7 @@
 import axios from 'axios'
 import type { AxiosInstance, AxiosRequestConfig, AxiosResponse, CancelToken } from 'axios'
 
-import { throwException, isAxiosError, http } from './api.client.shared'
+import { throwException, isAxiosError, http, USE_MOCK } from './api.client.shared'
 import { environment } from '../../environment'
 
 import { CreatorLevelViewModel } from './models/creator-level-view-model'
@@ -93,13 +93,13 @@ class CreatorApiClient implements ICreatorApiClient {
   // ---- endpoints ----
 
   creatorHomeStats(cancelToken?: CancelToken): Promise<any> {
-    if (import.meta.dev) return Promise.resolve(getMockHomeStats())
+    if (USE_MOCK) return Promise.resolve(getMockHomeStats())
     const url_ = this.baseUrl + '/user/creator/home-stats'
     return this.tryRequest<any>({ url: url_, method: 'Get', headers: { Accept: 'application/json' }, cancelToken }, () => getMockHomeStats())
   }
 
   creatorLevel(cancelToken?: CancelToken): Promise<CreatorLevelViewModel> {
-    if (import.meta.dev) return Promise.resolve(getMockLevel())
+    if (USE_MOCK) return Promise.resolve(getMockLevel())
     const url_ = this.baseUrl + '/user/creator/level'
     return this.tryRequest<any>({ url: url_, method: 'Get', headers: { Accept: 'application/json' }, cancelToken }, () => null)
       .then(data => (data ? CreatorLevelViewModel.fromJS(data) : getMockLevel()))
@@ -107,14 +107,14 @@ class CreatorApiClient implements ICreatorApiClient {
 
   // ---- bio reviews (creator's own verified reviews with video/photo) ----
   creatorReviewsGet(cancelToken?: CancelToken): Promise<CreatorReviewViewModel[]> {
-    if (import.meta.dev) return Promise.resolve(getMockReviews())
+    if (USE_MOCK) return Promise.resolve(getMockReviews())
     const url_ = this.baseUrl + '/user/creator/reviews'
     return this.tryRequest<any[]>({ url: url_, method: 'Get', headers: { Accept: 'application/json' }, cancelToken }, () => [])
       .then(arr => (Array.isArray(arr) ? arr.map(x => CreatorReviewViewModel.fromJS(x)) : []))
   }
 
   creatorReviewsPost(review: CreatorReviewViewModel, cancelToken?: CancelToken): Promise<CreatorReviewViewModel> {
-    if (import.meta.dev) return Promise.resolve(review)
+    if (USE_MOCK) return Promise.resolve(review)
     const url_ = this.baseUrl + '/user/creator/reviews'
     return this.tryRequest<any>({
       url: url_, method: 'Post', data: JSON.stringify(review),
@@ -123,21 +123,21 @@ class CreatorApiClient implements ICreatorApiClient {
   }
 
   creatorReviewsDelete(id: string, cancelToken?: CancelToken): Promise<void> {
-    if (import.meta.dev) return Promise.resolve()
+    if (USE_MOCK) return Promise.resolve()
     const url_ = this.baseUrl + `/user/creator/reviews/${encodeURIComponent(id)}`
     return this.tryRequest<void>({ url: url_, method: 'Delete', headers: {}, cancelToken }, () => undefined as any)
   }
 
   // ---- wishlist ----
   creatorWishlistGet(cancelToken?: CancelToken): Promise<CreatorWishlistItemViewModel[]> {
-    if (import.meta.dev) return Promise.resolve(getMockWishlist())
+    if (USE_MOCK) return Promise.resolve(getMockWishlist())
     const url_ = this.baseUrl + '/user/creator/wishlist'
     return this.tryRequest<any[]>({ url: url_, method: 'Get', headers: { Accept: 'application/json' }, cancelToken }, () => [])
       .then(arr => (Array.isArray(arr) ? arr.map(x => CreatorWishlistItemViewModel.fromJS(x)) : []))
   }
 
   creatorWishlistPost(item: CreatorWishlistItemViewModel, cancelToken?: CancelToken): Promise<CreatorWishlistItemViewModel> {
-    if (import.meta.dev) return Promise.resolve(item)
+    if (USE_MOCK) return Promise.resolve(item)
     const url_ = this.baseUrl + '/user/creator/wishlist'
     return this.tryRequest<any>({
       url: url_, method: 'Post', data: JSON.stringify(item),
@@ -146,21 +146,21 @@ class CreatorApiClient implements ICreatorApiClient {
   }
 
   creatorWishlistDelete(id: string, cancelToken?: CancelToken): Promise<void> {
-    if (import.meta.dev) return Promise.resolve()
+    if (USE_MOCK) return Promise.resolve()
     const url_ = this.baseUrl + `/user/creator/wishlist/${encodeURIComponent(id)}`
     return this.tryRequest<void>({ url: url_, method: 'Delete', headers: {}, cancelToken }, () => undefined as any)
   }
 
   // ---- discount codes ----
   creatorDiscountCodesGet(cancelToken?: CancelToken): Promise<CreatorDiscountCodeViewModel[]> {
-    if (import.meta.dev) return Promise.resolve(getMockDiscountCodes())
+    if (USE_MOCK) return Promise.resolve(getMockDiscountCodes())
     const url_ = this.baseUrl + '/user/creator/discount-codes'
     return this.tryRequest<any[]>({ url: url_, method: 'Get', headers: { Accept: 'application/json' }, cancelToken }, () => [])
       .then(arr => (Array.isArray(arr) ? arr.map(x => CreatorDiscountCodeViewModel.fromJS(x)) : []))
   }
 
   creatorDiscountCodesPut(codes: CreatorDiscountCodeViewModel[], cancelToken?: CancelToken): Promise<void> {
-    if (import.meta.dev) return Promise.resolve()
+    if (USE_MOCK) return Promise.resolve()
     const url_ = this.baseUrl + '/user/creator/discount-codes'
     return this.tryRequest<void>({
       url: url_, method: 'Put', data: JSON.stringify(codes),
@@ -170,13 +170,13 @@ class CreatorApiClient implements ICreatorApiClient {
 
   // ---- picks ----
   creatorPicksGet(cancelToken?: CancelToken): Promise<any[]> {
-    if (import.meta.dev) return Promise.resolve(getMockPicks(currentCreatorMock.handle))
+    if (USE_MOCK) return Promise.resolve(getMockPicks(currentCreatorMock.handle))
     const url_ = this.baseUrl + '/user/creator/picks'
     return this.tryRequest<any[]>({ url: url_, method: 'Get', headers: { Accept: 'application/json' }, cancelToken }, () => [])
   }
 
   creatorPicksPost(pick: any, cancelToken?: CancelToken): Promise<any> {
-    if (import.meta.dev) return Promise.resolve({ ...pick, id: pick.id ?? `pick-${Date.now()}` })
+    if (USE_MOCK) return Promise.resolve({ ...pick, id: pick.id ?? `pick-${Date.now()}` })
     const url_ = this.baseUrl + '/user/creator/picks'
     return this.tryRequest<any>({
       url: url_, method: 'Post', data: JSON.stringify(pick),
@@ -185,7 +185,7 @@ class CreatorApiClient implements ICreatorApiClient {
   }
 
   creatorPicksPut(pick: any, cancelToken?: CancelToken): Promise<any> {
-    if (import.meta.dev) return Promise.resolve(pick)
+    if (USE_MOCK) return Promise.resolve(pick)
     const url_ = this.baseUrl + '/user/creator/picks'
     return this.tryRequest<any>({
       url: url_, method: 'Put', data: JSON.stringify(pick),
@@ -194,40 +194,40 @@ class CreatorApiClient implements ICreatorApiClient {
   }
 
   creatorPicksDelete(id: string, cancelToken?: CancelToken): Promise<void> {
-    if (import.meta.dev) return Promise.resolve()
+    if (USE_MOCK) return Promise.resolve()
     const url_ = this.baseUrl + `/user/creator/picks/${encodeURIComponent(id)}`
     return this.tryRequest<void>({ url: url_, method: 'Delete', headers: {}, cancelToken }, () => undefined as any)
   }
 
   // ---- proposals ----
   creatorProposalsGet(cancelToken?: CancelToken): Promise<any[]> {
-    if (import.meta.dev) return Promise.resolve(getMockProposals())
+    if (USE_MOCK) return Promise.resolve(getMockProposals())
     const url_ = this.baseUrl + '/user/creator/proposals'
     return this.tryRequest<any[]>({ url: url_, method: 'Get', headers: { Accept: 'application/json' }, cancelToken }, () => [])
   }
 
   creatorProposalAccept(id: string, cancelToken?: CancelToken): Promise<void> {
-    if (import.meta.dev) return Promise.resolve()
+    if (USE_MOCK) return Promise.resolve()
     const url_ = this.baseUrl + `/user/creator/proposals/${encodeURIComponent(id)}/accept`
     return this.tryRequest<void>({ url: url_, method: 'Post', headers: {}, cancelToken }, () => undefined as any)
   }
 
   creatorProposalReject(id: string, cancelToken?: CancelToken): Promise<void> {
-    if (import.meta.dev) return Promise.resolve()
+    if (USE_MOCK) return Promise.resolve()
     const url_ = this.baseUrl + `/user/creator/proposals/${encodeURIComponent(id)}/reject`
     return this.tryRequest<void>({ url: url_, method: 'Post', headers: {}, cancelToken }, () => undefined as any)
   }
 
   // ---- campaigns ----
   creatorCampaignsGet(cancelToken?: CancelToken): Promise<any[]> {
-    if (import.meta.dev) return Promise.resolve(getMockMyCampaigns())
+    if (USE_MOCK) return Promise.resolve(getMockMyCampaigns())
     const url_ = this.baseUrl + '/user/creator/campaigns'
     return this.tryRequest<any[]>({ url: url_, method: 'Get', headers: { Accept: 'application/json' }, cancelToken }, () => [])
   }
 
   // ---- boost ----
   creatorBoostGet(cancelToken?: CancelToken): Promise<any> {
-    if (import.meta.dev) {
+    if (USE_MOCK) {
       return Promise.resolve({ active: false, boostedUntil: null, tierOptions: [
         { days: 3, priceEur: 9 },
         { days: 7, priceEur: 19 },
@@ -239,7 +239,7 @@ class CreatorApiClient implements ICreatorApiClient {
   }
 
   creatorBoostPost(request: any, cancelToken?: CancelToken): Promise<any> {
-    if (import.meta.dev) {
+    if (USE_MOCK) {
       const days = request?.days ?? 7
       const until = new Date()
       until.setDate(until.getDate() + days)
@@ -254,7 +254,7 @@ class CreatorApiClient implements ICreatorApiClient {
 
   // ---- featured toggle ----
   storeFeaturedPut(storeId: string, featured: boolean, cancelToken?: CancelToken): Promise<void> {
-    if (import.meta.dev) return Promise.resolve()
+    if (USE_MOCK) return Promise.resolve()
     const url_ = this.baseUrl + `/user/stores/${encodeURIComponent(storeId)}/featured`
     return this.tryRequest<void>({
       url: url_, method: 'Put', data: JSON.stringify({ featured }),
@@ -264,7 +264,7 @@ class CreatorApiClient implements ICreatorApiClient {
 
   // ---- campaign reviews (restaurant -> creator feedback) ----
   creatorCampaignReviewsGet(cancelToken?: CancelToken): Promise<any[]> {
-    if (import.meta.dev) return Promise.resolve(getMockCampaignReviews(currentCreatorMock.handle))
+    if (USE_MOCK) return Promise.resolve(getMockCampaignReviews(currentCreatorMock.handle))
     const url_ = this.baseUrl + '/user/creator/campaign-reviews'
     return this.tryRequest<any[]>({ url: url_, method: 'Get', headers: { Accept: 'application/json' }, cancelToken }, () => [])
   }

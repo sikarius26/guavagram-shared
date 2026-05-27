@@ -2,7 +2,7 @@
   <Teleport to="body">
     <Transition name="modal">
       <div v-if="modelValue" :class="[
-        'fixed inset-0 z-50 flex justify-center',
+        'fixed inset-0 z-[1000] flex justify-center',
         fullscreen ? 'p-0 items-stretch' : 'p-4',
         !fullscreen && mobilePosition === 'bottom' ? 'items-end sm:items-center' : '',
         !fullscreen && mobilePosition !== 'bottom' ? 'items-center' : ''

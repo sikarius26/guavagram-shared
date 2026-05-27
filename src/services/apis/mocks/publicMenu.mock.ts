@@ -331,7 +331,21 @@ export const buildDevMenu = (slug: string) => {
     availableLanguages: ['es'],
     categories,
     items,
-    bundles: [],
+    // Demo combo so the bio's "combo" campaign deep-links to a real BundleModal.
+    bundles: [
+      {
+        id: 'demo-bundle-1',
+        price: 14.90,
+        name: 'Menú del día',
+        description: 'Primer plato + segundo + bebida',
+        imageUrl: undefined,
+        bundleCategories: [
+          { id: 'bc-primero', name: 'Primer plato', description: 'Elige uno', itemsCount: 1, menuItems: { 'e-01': 0, 'e-02': 0, 'e-03': 0 } },
+          { id: 'bc-segundo', name: 'Segundo plato', description: 'Elige uno', itemsCount: 1, menuItems: { 'p-01': 0, 'p-burger-demo': 0 } },
+          { id: 'bc-bebida', name: 'Bebida', description: 'Elige una', itemsCount: 1, menuItems: { 'b-01': 0, 'b-05': 0 } },
+        ],
+      },
+    ],
     attributeGroups: [...DEMO_GROUPS, ...wineGroups],
     attributes: [...DEMO_ATTRIBUTES, ...wineAttributes],
     suggestedItems: [],
@@ -394,5 +408,20 @@ export const buildDevProfile = (slug: string) => {
     skinId: 'modern',
     textColor: '#1a1c1b',
     isDarkMode: false,
+    // Demo campaigns so /bio and /menu both render the Campañas carousel
+    // without a backend. Real stores override this from brandingSettings.
+    // No bg/accent → the renderer/menu palette cycles per index.
+    brandingSettings: {
+      campaigns: [
+        // 1) Combo → deep-links to the "Menú del día" BundleModal in the menu.
+        { id: 'demo-camp-combo', kind: 'combo', linkedBundleId: 'demo-bundle-1', icon: 'mdi-silverware-fork-knife', badge: 'Hoy', title: 'Menú del día', subtitle: 'Primero + segundo + bebida', price: '14,90€', schedule: 'Lun-Vie', cta: 'Ver combo' },
+        // 2) 10% on SOME products only (two entrantes) — only those show the
+        //    struck price in the menu, the rest stay full price.
+        { id: 'demo-camp-10', kind: 'discount', discountPct: 10, discountItemIds: ['e-01', 'e-02'], icon: 'mdi-tag-outline', badge: '-10%', title: '-10% en entrantes', subtitle: 'En croquetas y pan con tomate', cta: 'Ver entrantes' },
+        // 3) Happy hour 20:00-22:00 → -20% on drinks + a time-boxed schedule
+        //    chip (structured schedule object, same shape the admin saves).
+        { id: 'demo-camp-hh', kind: 'discount', discountPct: 20, discountItemIds: ['b-01', 'b-05'], icon: 'mdi-glass-cocktail', badge: 'Happy Hour', title: 'Happy Hour', subtitle: '-20% en bebidas', schedule: { days: [], allDay: false, from: '20:00', to: '22:00' }, cta: 'Ver bebidas' },
+      ],
+    },
   }
 }

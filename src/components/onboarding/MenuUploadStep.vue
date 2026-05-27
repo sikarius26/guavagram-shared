@@ -54,19 +54,19 @@ const hasFile = computed(() => !!props.flow.pendingMenuFile.value)
 
     <template v-if="!hasFile">
       <div class="flex flex-col gap-2.5">
-        <label class="flex items-center gap-3 p-5 rounded-xl border-2 border-gray-200 dark:border-white/10 hover:border-primary hover:shadow-md transition-all cursor-pointer group">
-          <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 border border-primary/20">
-            <span class="mdi mdi-camera text-xl text-primary"></span>
+        <label class="flex items-center gap-3 p-5 rounded-xl border-2 border-gray-200 dark:border-white/10 hover:border-emerald-500 focus-within:border-emerald-500 focus-within:shadow-[0_0_0_4px_rgba(16,185,129,0.12)] hover:shadow-md transition-all cursor-pointer group">
+          <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20">
+            <span class="mdi mdi-camera text-xl text-emerald-600"></span>
           </div>
           <div class="flex-1">
             <p class="font-semibold text-text-main text-sm">Hacer foto</p>
             <p class="text-xs text-text-secondary">Captura tu carta con la cámara</p>
           </div>
-          <span class="mdi mdi-arrow-right text-gray-300 group-hover:text-primary transition-colors"></span>
+          <span class="mdi mdi-arrow-right text-gray-300 group-hover:text-emerald-600 transition-colors"></span>
           <input type="file" accept="image/*" capture="environment" class="hidden" @change="onFileSelected" />
         </label>
 
-        <label class="flex items-center gap-3 p-5 rounded-xl border-2 border-gray-200 dark:border-white/10 hover:border-primary hover:shadow-md transition-all cursor-pointer group">
+        <label class="flex items-center gap-3 p-5 rounded-xl border-2 border-gray-200 dark:border-white/10 hover:border-emerald-500 focus-within:border-emerald-500 focus-within:shadow-[0_0_0_4px_rgba(16,185,129,0.12)] hover:shadow-md transition-all cursor-pointer group">
           <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white dark:bg-white/5 border border-gray-200 dark:border-white/10">
             <span class="mdi mdi-upload text-xl text-gray-500"></span>
           </div>
@@ -74,7 +74,7 @@ const hasFile = computed(() => !!props.flow.pendingMenuFile.value)
             <p class="font-semibold text-text-main text-sm">Subir archivo</p>
             <p class="text-xs text-text-secondary">.jpg, .png, .pdf, .xlsx</p>
           </div>
-          <span class="mdi mdi-arrow-right text-gray-300 group-hover:text-primary transition-colors"></span>
+          <span class="mdi mdi-arrow-right text-gray-300 group-hover:text-emerald-600 transition-colors"></span>
           <input type="file" accept="image/*,.pdf,.xlsx,.csv" class="hidden" @change="onFileSelected" />
         </label>
       </div>

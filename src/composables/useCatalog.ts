@@ -6,9 +6,17 @@ import type { DashboardCatalogItem } from '~/services/apis/models/dashboard-cata
 // Module-level singleton: shared across MenuPanel and GuavagramPanel
 const catalog = ref<DashboardCatalogViewModel | null>(null)
 const featuredIds = ref<Set<string>>(new Set())
+// Combos/bundles (id + name + price) for the campaign "combo" link picker.
+// DashboardCatalogViewModel doesn't carry bundles, so callers set them from
+// the menu source separately (GuavagramPanel reads the public menu's bundles).
+export interface CatalogBundleLite { id: string; name: string; price?: number }
+const bundles = ref<CatalogBundleLite[]>([])
 
 export function useCatalog() {
   const setCatalog = (vm: DashboardCatalogViewModel | null) => { catalog.value = vm }
+  const setBundles = (list: CatalogBundleLite[] | null | undefined) => {
+    bundles.value = Array.isArray(list) ? list.filter(b => b && b.id) : []
+  }
 
   const allItems = computed<DashboardCatalogItem[]>(() => {
     if (!catalog.value?.categories) return []
@@ -66,5 +74,6 @@ export function useCatalog() {
   return {
     catalog, allItems, featuredItems, featuredIds, isFeatured, toggleFeatured, setCatalog, categoryNameOf,
     topLevelCategories, subcategoriesOf, hasSubcategories,
+    bundles, setBundles,
   }
 }

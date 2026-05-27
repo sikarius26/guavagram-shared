@@ -188,6 +188,49 @@ export function throwException(message: string, status: number, response: string
 
 export function isAxiosError(obj: any | undefined): obj is AxiosError {
     return obj && obj.isAxiosError === true;
-} 
+}
+
+// Toggle: route NSwag client requests to in-memory fixtures instead of the
+// backend. Default is `false` so dev hits the real API (so persistence is
+// observable across refresh). Set `VITE_USE_MOCK=true` in `.env` for offline
+// work / demo screenshots / when the backend is down.
+export const USE_MOCK: boolean = (() => {
+  try {
+    const v = (import.meta as any)?.env?.VITE_USE_MOCK
+    if (typeof v === 'string') return v.toLowerCase() === 'true'
+    return false
+  } catch { return false }
+})()
 
 export const http = axios.create()
+
+// Auth interceptor — attaches the JWT on every outgoing request.
+//
+// Why a request interceptor instead of axios defaults: Vite can end up with
+// two module instances of this file (one via the package alias, one via
+// relative imports across guavagram-shared <-> consumer apps). Setting
+// http.defaults.headers.Authorization in admin's plugin then no longer
+// affects the http instance that the panel's NSwag client is using —
+// you'd silently 401 every dashboard call. An interceptor on this very
+// module ensures whichever copy ends up holding the singleton still
+// auto-auths from storage. Idempotent if the consumer also sets defaults.
+//
+// Reads from sessionStorage first (v4 stack convention), then localStorage
+// (shared cross-app key 'guava_jwt' that admin mirrors on login).
+if (typeof window !== 'undefined') {
+  http.interceptors.request.use((config) => {
+    try {
+      const existing = config.headers?.['Authorization'] || config.headers?.['authorization']
+      if (existing) return config
+      const token =
+        sessionStorage.getItem('jwt') ||
+        localStorage.getItem('guava_jwt')
+      if (token) {
+        config.headers = config.headers || {}
+        ;(config.headers as any)['Authorization'] = `Bearer ${token}`
+      }
+    } catch { /* storage not available */ }
+    return config
+  })
+
+}

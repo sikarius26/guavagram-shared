@@ -1,12 +1,11 @@
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { onboardingApiClient } from '~/services/apis/api.client.onboarding'
 import { storeApiClient } from '~/services/apis/api.client.store'
 import { http } from '~/services/apis/api.client.shared'
 import { GoogleBusinessLocationViewModel } from '~/services/apis/models/google-business-location-view-model'
-import { OnboardingInitRequest } from '~/services/apis/models/onboarding-init-request'
 import { OnboardingLinkGoogleBusinessRequest } from '~/services/apis/models/onboarding-link-google-business-request'
-import { OnboardingManualStoreRequest } from '~/services/apis/models/onboarding-manual-store-request'
 import { OnboardingMediaViewModel } from '~/services/apis/models/onboarding-media-view-model'
+import { OnboardingRegisterRequest } from '~/services/apis/models/onboarding-register-request'
 import { UserLoginRequest } from '~/services/apis/models/user-login-request'
 import { LoginProviderTypeEnum } from '~/services/apis/models/login-provider-type-enum'
 import { notifier } from '~/services/notification'
@@ -31,6 +30,24 @@ interface OwnerAccount {
   name: string
 }
 
+// Subset of wizard state we persist across reloads. The store is created in
+// step 1, but everything used to live in memory only — a mid-alta refresh
+// wiped `storeId` and stranded the owner on "sesión no iniciada". We keep this
+// in a cookie (not localStorage) so SSR and the first client render agree and
+// there's no step flash on hydration. File handles / transient menu state are
+// deliberately excluded (not serialisable / re-derivable).
+interface OnboardingSnapshot {
+  step: number
+  owner: OwnerAccount
+  storeId?: string
+  slugName?: string
+  googleBusinessConnected: boolean
+  selectedGoogleBusinessId?: string
+  storePreview?: StorePreview
+}
+
+const ONBOARDING_COOKIE = 'gg_onboarding_v2'
+
 const decodeJwtPayload = (token: string): Record<string, any> => {
   try {
     const part = token.split('.')[1]
@@ -53,14 +70,28 @@ const decodeJwtPayload = (token: string): Record<string, any> => {
  * a real `storeId` to attach uploads / GBP info to.
  */
 export function useOnboardingV2() {
-  const currentStepIndex = ref(0)
+  // Cookie-backed snapshot of the wizard so a refresh mid-alta doesn't lose
+  // the store. Restored synchronously here (SSR-safe) so the first render lands
+  // on the right step. `useCookie` is provided by the host Nuxt app.
+  const snapshot = useCookie<OnboardingSnapshot | null>(ONBOARDING_COOKIE, {
+    default: () => null,
+    maxAge: 60 * 60 * 24, // 1 day — enough to resume, not stale forever
+    sameSite: 'lax',
+    path: '/',
+  })
+  const restored = snapshot.value
+  // A saved step past "account" is only meaningful with a storeId; without one
+  // the owner can't proceed anyway, so fall back to the start.
+  const restoredStep = restored?.storeId ? (restored.step ?? 0) : 0
+
+  const currentStepIndex = ref(restoredStep)
   const isLoading = ref(false)
 
   // ─── Step 1: Account ────────────────────────────────────────────────
   const signupMethod = ref<SignupMethod>('google')
-  const owner = ref<OwnerAccount>({ email: '', name: '' })
-  const storeId = ref<string | undefined>(undefined)
-  const slugName = ref<string | undefined>(undefined)
+  const owner = ref<OwnerAccount>(restored?.owner ?? { email: '', name: '' })
+  const storeId = ref<string | undefined>(restored?.storeId)
+  const slugName = ref<string | undefined>(restored?.slugName)
 
   // ─── Step 2: Menu ───────────────────────────────────────────────────
   const pendingMenuFile = ref<File | null>(null)
@@ -68,11 +99,46 @@ export function useOnboardingV2() {
   const menuOperationId = ref<string | undefined>(undefined)
 
   // ─── Step 3: GBP ────────────────────────────────────────────────────
-  const googleBusinessConnected = ref(false)
+  const googleBusinessConnected = ref(restored?.googleBusinessConnected ?? false)
   const googleBusinessLocations = ref<GoogleBusinessLocationViewModel[]>([])
-  const selectedGoogleBusinessId = ref<string | undefined>(undefined)
-  const storePreview = ref<StorePreview | undefined>(undefined)
+  const selectedGoogleBusinessId = ref<string | undefined>(restored?.selectedGoogleBusinessId)
+  const storePreview = ref<StorePreview | undefined>(restored?.storePreview)
   const manualMode = ref(false)
+
+  // Mirror the resumable slice back into the cookie whenever it changes.
+  watch(
+    [currentStepIndex, storeId, slugName, owner, googleBusinessConnected, selectedGoogleBusinessId, storePreview],
+    () => {
+      snapshot.value = {
+        step: currentStepIndex.value,
+        owner: owner.value,
+        storeId: storeId.value,
+        slugName: slugName.value,
+        googleBusinessConnected: googleBusinessConnected.value,
+        selectedGoogleBusinessId: selectedGoogleBusinessId.value,
+        storePreview: storePreview.value,
+      }
+    },
+    { deep: true },
+  )
+
+  // Wipe persisted state once the wizard is done (or to start fresh).
+  const resetOnboarding = () => {
+    snapshot.value = null
+    currentStepIndex.value = 0
+    owner.value = { email: '', name: '' }
+    storeId.value = undefined
+    slugName.value = undefined
+    pendingMenuFile.value = null
+    menuImportState.value = 'idle'
+    menuOperationId.value = undefined
+    googleBusinessConnected.value = false
+    googleBusinessLocations.value = []
+    selectedGoogleBusinessId.value = undefined
+    storePreview.value = undefined
+    manualMode.value = false
+    galleryPhotos.value = []
+  }
 
   // ─── Step 4: Gallery ────────────────────────────────────────────────
   const galleryPhotos = ref<OnboardingMediaViewModel[]>([])
@@ -98,32 +164,21 @@ export function useOnboardingV2() {
 
   /**
    * Common path after we've obtained a JWT (regardless of provider): persist
-   * the token, capture the email/name we already know, and ask the backend
-   * for a placeholder store so the rest of the wizard has a storeId.
+   * the token and capture the email/name we already know. The store itself is
+   * created later — from the chosen Google place via `onboardingRegister`
+   * (see setManualStoreInfo) — because the deployed backend is place-first and
+   * has no separate placeholder-store step.
    */
   const finalizeSignup = async (jwt: string, email: string, name: string): Promise<boolean> => {
     const platformUserToken = useCookie('pu_token')
     platformUserToken.value = jwt
-    // Setting the cookie alone isn't enough: the axios interceptor reads the
-    // cookie ref at request time, but the ref it grabs is the one created in
-    // the plugin scope — by the time we hit /onboarding/account/init it may
-    // still be holding the pre-signup (empty) value due to ref propagation
-    // timing. Pinning the Authorization header on the http defaults makes
-    // the immediately-following request use the fresh JWT regardless.
+    // The axios interceptor reads the cookie ref at request time, but it may
+    // still hold the pre-signup (empty) value due to ref propagation timing.
+    // Pinning the Authorization header on the http defaults makes the
+    // immediately-following requests use the fresh JWT regardless.
     http.defaults.headers.common.Authorization = `Bearer ${jwt}`
     owner.value = { email, name }
-
-    try {
-      const res = await onboardingApiClient.onboardingAccountInit(OnboardingInitRequest.fromJS({
-        displayName: name ? `${name}'s Restaurant` : undefined,
-      }))
-      storeId.value = res.storeId
-      slugName.value = res.slugName
-      return true
-    } catch (error) {
-      notifier.notifyError('No se pudo inicializar el restaurante', error as Error)
-      return false
-    }
+    return true
   }
 
   const signupWithGoogle = async (credential: string): Promise<boolean> => {
@@ -261,27 +316,44 @@ export function useOnboardingV2() {
     }
   }
 
+  /**
+   * Creates the store via the (deployed) `onboarding/register` endpoint and
+   * captures the returned storeId. The deployed backend is place-first: pass a
+   * `googlePlaceId` and it pulls name/address/hours from the place. The pure
+   * manual fallback (no place) registers with just email/phone — the typed
+   * name/address are kept locally for the summary, but the place-first backend
+   * can't persist them yet (no manual endpoint deployed).
+   */
   const setManualStoreInfo = async (info: {
     displayName: string
     addressLine1: string
     city: string
     postalCode?: string
     phoneNumber?: string
+    googlePlaceId?: string
   }): Promise<boolean> => {
-    if (!storeId.value) return false
     isLoading.value = true
     try {
-      const res = await onboardingApiClient.onboardingManual(
-        storeId.value,
-        OnboardingManualStoreRequest.fromJS(info),
-      )
+      const res = await onboardingApiClient.onboardingRegister(OnboardingRegisterRequest.fromJS({
+        googlePlaceId: info.googlePlaceId || undefined,
+        emailAddress: owner.value.email || undefined,
+        phoneNumber: info.phoneNumber || undefined,
+      }))
+      if (!res.storeId) {
+        notifier.notifyError('No se pudo crear el restaurante. Inténtalo de nuevo.')
+        return false
+      }
+      storeId.value = res.storeId
       slugName.value = res.slugName
       storePreview.value = {
-        displayName: res.displayName,
-        addressLine1: res.addressLine1,
-        city: res.city,
-        phoneNumber: res.phoneNumber,
+        displayName: info.displayName,
+        addressLine1: info.addressLine1,
+        city: info.city,
+        phoneNumber: info.phoneNumber,
       }
+      // The store didn't exist while the owner was on the menu step, so flush
+      // any menu they uploaded now that we finally have a storeId (best-effort).
+      if (pendingMenuFile.value) submitMenu().catch(() => {})
       return true
     } catch (error) {
       notifier.notifyError('No se pudo guardar la información', error as Error)
@@ -352,6 +424,7 @@ export function useOnboardingV2() {
     // navigation
     next,
     back,
+    resetOnboarding,
     // actions
     signupWithGoogle,
     signupWithEmail,

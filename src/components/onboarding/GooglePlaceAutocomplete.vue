@@ -11,6 +11,7 @@ const props = withDefaults(defineProps<{
 })
 const emit = defineEmits<{
   select: [placeId: string, label: string, address: string]
+  error: [message: string]
 }>()
 
 interface Suggestion {
@@ -24,6 +25,9 @@ const suggestions = ref<Suggestion[]>([])
 const isOpen = ref(false)
 const isLoaded = ref(false)
 const selectedLabel = ref('')
+// User-facing failure message (referrer-blocked key, API not enabled, offline…).
+// Surfaced inline so the search never dies silently; parents also get @error.
+const loadError = ref('')
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -61,8 +65,9 @@ const fetchSuggestions = async (input: string) => {
     suggestions.value = []
     return
   }
-  if (!isLoaded.value) await loadGoogleMaps()
+  loadError.value = ''
   try {
+    if (!isLoaded.value) await loadGoogleMaps()
     const { AutocompleteSuggestion } = await (window as any).google.maps.importLibrary('places')
     const response = await AutocompleteSuggestion.fetchAutocompleteSuggestions({
       input,
@@ -79,6 +84,15 @@ const fetchSuggestions = async (input: string) => {
   } catch (e) {
     console.error('Places autocomplete failed', e)
     suggestions.value = []
+    isOpen.value = false
+    // A referrer-restricted API key returns 403 "Requests from referer … are
+    // blocked" — not actionable from the UI, so steer the user to manual entry.
+    const raw = (e as any)?.message ?? String(e)
+    const blocked = /blocked|referer|referrer|forbidden|403|api(?:targetblocked|notactivated)/i.test(raw)
+    loadError.value = blocked
+      ? 'La búsqueda de Google Maps no está disponible ahora mismo. Introduce tu restaurante manualmente.'
+      : 'No se pudo cargar la búsqueda. Inténtalo de nuevo o introduce los datos manualmente.'
+    emit('error', loadError.value)
   }
 }
 
@@ -95,6 +109,13 @@ const onSelect = (s: Suggestion) => {
   emit('select', s.placeId, s.mainText, s.secondaryText)
 }
 
+// setTimeout no está expuesto en el contexto del template — usarlo inline
+// (@blur="setTimeout(...)") explota con "_ctx.setTimeout is not a function".
+// Delay para que el click en la sugerencia se procese antes de cerrar.
+const onBlur = () => {
+  setTimeout(() => { isOpen.value = false }, 200)
+}
+
 onMounted(() => { loadGoogleMaps().catch(() => {}) })
 </script>
 
@@ -104,10 +125,14 @@ onMounted(() => { loadGoogleMaps().catch(() => {}) })
       <input v-model="query" type="text"
         :placeholder="placeholder"
         @focus="isOpen = suggestions.length > 0"
-        @blur="setTimeout(() => isOpen = false, 200)"
-        class="form-input w-full rounded-xl border border-gray-200 bg-gray-50 dark:bg-white/5 dark:border-white/10 px-4 h-12 text-base outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 transition-all placeholder:text-gray-400 text-text-main" />
-      <span class="mdi mdi-magnify absolute right-3 top-3 text-gray-400 group-focus-within:text-primary transition-colors"></span>
+        @blur="onBlur"
+        class="form-input w-full rounded-xl border border-gray-200 bg-gray-50 dark:bg-white/5 dark:border-white/10 px-4 h-12 text-base outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 transition-all placeholder:text-gray-400 text-text-main" />
+      <span class="mdi mdi-magnify absolute right-3 top-3 text-gray-400 group-focus-within:text-emerald-600 transition-colors"></span>
     </div>
+    <p v-if="loadError" class="mt-2 flex items-start gap-1.5 text-[12px] text-amber-700 dark:text-amber-400">
+      <span class="mdi mdi-alert-outline text-sm shrink-0 mt-px"></span>
+      <span>{{ loadError }}</span>
+    </p>
     <div v-if="isOpen && suggestions.length"
       class="absolute z-20 mt-2 w-full bg-white dark:bg-[#2a2a2a] rounded-xl border border-gray-200 dark:border-white/10 shadow-lg max-h-72 overflow-auto">
       <button v-for="s in suggestions" :key="s.placeId" type="button"

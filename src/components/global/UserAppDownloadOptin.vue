@@ -1,7 +1,18 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import QRCode from 'qrcode'
 import { useAppDownloadOptin } from '~/composables/useAppDownloadOptin'
+
+// qrcode v1.5 ships pure CJS. Because THIS file lives in guavagram-shared/
+// (outside the consuming app's root), Vite serves it via the `@fs/` handler
+// which bypasses `optimizeDeps` pre-bundling entirely — so a static
+// `import { toDataURL } from 'qrcode'` throws SyntaxError on module load
+// and crashes the whole client bundle (hydration dies on /menu and /bio).
+// Dynamic import dodges this: Vite emits a separate chunk and runs the
+// full CJS→ESM wrapper on it, so both named and default access work.
+async function loadQRCode() {
+  const mod: any = await import('qrcode')
+  return (mod.toDataURL ?? mod.default?.toDataURL) as typeof import('qrcode').toDataURL
+}
 
 const { isOpen, close } = useAppDownloadOptin()
 
@@ -13,7 +24,8 @@ const qrDataUrl = ref<string>('')
 watch(isOpen, async (v) => {
   if (!v || qrDataUrl.value) return
   try {
-    qrDataUrl.value = await QRCode.toDataURL(APP_URL, {
+    const toDataURL = await loadQRCode()
+    qrDataUrl.value = await toDataURL(APP_URL, {
       width: 220,
       margin: 1,
       color: { dark: '#1f1310', light: '#ffffff' },

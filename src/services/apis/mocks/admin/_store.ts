@@ -21,6 +21,7 @@ import type { AdminPayout } from '~/services/admin/types/admin-payout'
 import type { AdminDispute, DisputeStatus } from '~/services/admin/types/admin-dispute'
 import type { AdminReviewItem, AdminUgcItem, AdminReportItem } from '~/services/admin/types/admin-moderation-item'
 import type { AdminAuditEvent, AuditEventType } from '~/services/admin/types/admin-audit-event'
+import { useReviewDisputes } from '~/composables/useReviewDisputes'
 
 export interface AdminStoreState {
   stores: AdminStoreRow[]
@@ -124,10 +125,15 @@ export function countOpenReviews(): number {
   return adminStore.reviewQueue.filter(r => r.status === 'pending').length
 }
 export function countOpenDisputes(): number {
-  return adminStore.disputes.filter(d =>
+  const seeded = adminStore.disputes.filter(d =>
     d.status === 'open' || d.status === 'in_review' ||
     d.status === 'awaiting_creator' || d.status === 'awaiting_restaurant'
   ).length
+  // Include real review disputes (created by restaurants in their dashboard).
+  const real = useReviewDisputes().disputes.value.filter(d =>
+    d.status === 'disputed' || d.status === 'under_review'
+  ).length
+  return seeded + real
 }
 export function countPendingEarnings(): number {
   return adminStore.earnings.filter(e => e.status === 'pending').length

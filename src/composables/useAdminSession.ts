@@ -57,6 +57,19 @@ export function useAdminSession() {
   const isStaff = computed(() => claims.value.isStaff)
   const staffRole = computed<StaffRole | null>(() => claims.value.role)
 
+  // True ONLY when there's a real JWT in the cookie that decodes successfully.
+  // The dev fallback above forces super_admin without a cookie, which is fine
+  // for the admin app but leaks owner/admin UI to anonymous visitors on the
+  // public bio (/r/[slug]/*) in incognito. Pages that render publicly should
+  // gate dev/owner controls on `hasRealStaffToken`, not on `isStaff`.
+  const hasRealStaffToken = computed(() => {
+    const token = cookie.value
+    if (!token) return false
+    const payload = decodeJwtPayload(token)
+    if (!payload) return false
+    return !!(payload.is_staff ?? payload.isStaff)
+  })
+
   const can = (permission: Permission): boolean => {
     if (!isStaff.value) return false
     const role = staffRole.value
@@ -73,5 +86,5 @@ export function useAdminSession() {
     cookie.value = cookie.value
   }
 
-  return { isStaff, staffRole, can, setDevRole }
+  return { isStaff, staffRole, hasRealStaffToken, can, setDevRole }
 }

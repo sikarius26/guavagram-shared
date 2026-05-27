@@ -1,37 +1,98 @@
 import { computed, ref, watch } from 'vue'
+import { userApiClient } from '../services/apis/api.client.user'
+import { publicUserApiClient } from '../services/apis/api.client.publicuser'
 
 type FollowSnapshot = { isFollowing: boolean; followersCount: number }
+
+// Resolved handle → userId so toggle() can call `userFollow(userId)` directly
+// without re-hitting `publicUserGet` on every click.
+const handleToUserId = new Map<string, string>()
 
 const cache = ref<Record<string, FollowSnapshot>>({})
 const inflight = new Map<string, Promise<FollowSnapshot>>()
 
+// One-shot fetch of the auth-user's following list, kept in a Set for fast
+// isFollowing(handle) lookup. Lazy + idempotent.
+let followingIdsLoaded: Promise<Set<string>> | null = null
+const followingIds = ref<Set<string>>(new Set())
+
+function loadFollowingIds(): Promise<Set<string>> {
+  if (followingIdsLoaded) return followingIdsLoaded
+  followingIdsLoaded = userApiClient.userFollowing()
+    .then(list => {
+      const ids = new Set<string>()
+      for (const u of list || []) if (u?.userId) ids.add(u.userId)
+      followingIds.value = ids
+      return ids
+    })
+    .catch(() => {
+      // 401/network → assume nothing followed yet; let the user retry by toggling.
+      followingIdsLoaded = null
+      return new Set<string>()
+    })
+  return followingIdsLoaded
+}
+
+async function resolveUserId(handle: string): Promise<string | null> {
+  const cached = handleToUserId.get(handle)
+  if (cached) return cached
+  try {
+    const profile: any = await publicUserApiClient.publicUserGet(handle)
+    const uid = profile?.userId ?? profile?.id
+    if (uid) handleToUserId.set(handle, uid)
+    return uid ?? null
+  } catch { return null }
+}
+
 async function fetchState(handle: string): Promise<FollowSnapshot> {
   if (inflight.has(handle)) return inflight.get(handle)!
-  const p = $fetch<FollowSnapshot>(`/api/stubs/follow/${encodeURIComponent(handle)}`).catch(
-    () => ({ isFollowing: false, followersCount: 0 }) as FollowSnapshot
-  )
+  const p = (async () => {
+    const [uid, ids] = await Promise.all([resolveUserId(handle), loadFollowingIds()])
+    const snap: FollowSnapshot = {
+      isFollowing: !!(uid && ids.has(uid)),
+      // Backend gap: UserProfileStatsViewModel does not expose followersCount.
+      // formatFollowersBucket(<100) returns null so the UI hides the metric
+      // for now (see memoria feedback_follow_visibility).
+      followersCount: 0,
+    }
+    cache.value = { ...cache.value, [handle]: snap }
+    return snap
+  })()
   inflight.set(handle, p)
-  const snap = await p
-  inflight.delete(handle)
-  cache.value = { ...cache.value, [handle]: snap }
-  return snap
+  try { return await p }
+  finally { inflight.delete(handle) }
 }
 
 async function toggleState(handle: string): Promise<FollowSnapshot> {
-  const snap = await $fetch<FollowSnapshot>(`/api/stubs/follow/${encodeURIComponent(handle)}`, {
-    method: 'POST',
-  }).catch(() => null)
-  if (snap) {
-    cache.value = { ...cache.value, [handle]: snap }
-    return snap
-  }
-  // Fallback: optimistic local flip if server unreachable
   const prev = cache.value[handle] ?? { isFollowing: false, followersCount: 0 }
-  const next: FollowSnapshot = prev.isFollowing
-    ? { isFollowing: false, followersCount: Math.max(0, prev.followersCount - 1) }
-    : { isFollowing: true, followersCount: prev.followersCount + 1 }
-  cache.value = { ...cache.value, [handle]: next }
-  return next
+  const uid = await resolveUserId(handle)
+  if (!uid) {
+    // Optimistic local flip — keeps the UI usable when the lookup fails.
+    const next: FollowSnapshot = prev.isFollowing
+      ? { isFollowing: false, followersCount: Math.max(0, prev.followersCount - 1) }
+      : { isFollowing: true, followersCount: prev.followersCount + 1 }
+    cache.value = { ...cache.value, [handle]: next }
+    return next
+  }
+  // Optimistic update first so the button reflects intent immediately.
+  const optimistic: FollowSnapshot = {
+    isFollowing: !prev.isFollowing,
+    followersCount: prev.followersCount + (prev.isFollowing ? -1 : 1),
+  }
+  cache.value = { ...cache.value, [handle]: optimistic }
+  const ids = new Set(followingIds.value)
+  if (optimistic.isFollowing) ids.add(uid); else ids.delete(uid)
+  followingIds.value = ids
+  // POST /user/follow is currently treated as a toggle by the backend; if a
+  // dedicated DELETE shows up later, branch on `prev.isFollowing` here.
+  await userApiClient.userFollow(uid).catch(() => {
+    // Rollback on failure.
+    cache.value = { ...cache.value, [handle]: prev }
+    const rb = new Set(followingIds.value)
+    if (prev.isFollowing) rb.add(uid); else rb.delete(uid)
+    followingIds.value = rb
+  })
+  return cache.value[handle] ?? optimistic
 }
 
 // Bucketed display for public follower counts. Cold-start policy:
@@ -61,7 +122,9 @@ export function formatCount(n: number): string {
 
 // ===== User's private "Siguiendo" list =====
 // Per the privacy policy: a consumer's follow list is never exposed publicly,
-// only on their own /wallet "Siguiendo" tab.
+// only on their own /wallet "Siguiendo" tab. This stays in localStorage as a
+// display-side cache (handles + avatars + city) because the backend only
+// returns minimal PublicUserViewModel without those denormalized fields.
 
 export type FollowedCreator = {
   handle: string

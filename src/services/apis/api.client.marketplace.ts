@@ -12,7 +12,7 @@
 import axios from 'axios'
 import type { AxiosInstance, AxiosRequestConfig, AxiosResponse, CancelToken } from 'axios'
 
-import { throwException, isAxiosError, http } from './api.client.shared'
+import { throwException, isAxiosError, http, USE_MOCK } from './api.client.shared'
 import { environment } from '../../environment'
 
 import type { CreatorMarketplaceFilter } from './models/creator-marketplace-filter'
@@ -74,7 +74,7 @@ class MarketplaceApiClient implements IMarketplaceApiClient {
   }
 
   marketplaceList(filter: CreatorMarketplaceFilter, page: number, cancelToken?: CancelToken): Promise<any> {
-    if (import.meta.dev) {
+    if (USE_MOCK) {
       const all = this.applyFilter(getMockCreators(), filter)
       const pageSize = 12
       const start = Math.max(0, (page - 1) * pageSize)
@@ -97,21 +97,21 @@ class MarketplaceApiClient implements IMarketplaceApiClient {
   }
 
   marketplaceDetail(handle: string, cancelToken?: CancelToken): Promise<any> {
-    if (import.meta.dev) return Promise.resolve(getMockCreatorByHandle(handle))
+    if (USE_MOCK) return Promise.resolve(getMockCreatorByHandle(handle))
     const url_ = `${this.baseUrl}/public/creator/${encodeURIComponent(handle)}/detail`
     return this.tryRequest<any>({ url: url_, method: 'Get', headers: { Accept: 'application/json' }, cancelToken },
       () => getMockCreatorByHandle(handle))
   }
 
   marketplacePicks(handle: string, cancelToken?: CancelToken): Promise<any[]> {
-    if (import.meta.dev) return Promise.resolve(getMockPicks(handle))
+    if (USE_MOCK) return Promise.resolve(getMockPicks(handle))
     const url_ = `${this.baseUrl}/public/creator/${encodeURIComponent(handle)}/picks`
     return this.tryRequest<any[]>({ url: url_, method: 'Get', headers: { Accept: 'application/json' }, cancelToken },
       () => [])
   }
 
   marketplaceCampaignReviews(handle: string, page: number, cancelToken?: CancelToken): Promise<any> {
-    if (import.meta.dev) {
+    if (USE_MOCK) {
       const all = getMockCampaignReviews(handle)
       const pageSize = 10
       const start = Math.max(0, (page - 1) * pageSize)

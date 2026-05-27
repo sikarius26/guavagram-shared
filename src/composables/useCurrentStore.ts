@@ -26,6 +26,28 @@ const isGroupView = ref(false)
 const currentGroupId = ref<string | null>(null)
 const isLoading = ref(false)
 
+// Optional override — set by admin (`guavagram-admin/app/plugins/v4-auth.client`)
+// to route the stores list through /platform `userCurrent().mappedStores`
+// instead of /web `dashboardStores`. The /platform client lives in admin-only,
+// hence the injection. Returns DashboardStoreInfo[] or null on failure (we
+// then fall back to /web).
+type StoresResolver = () => Promise<DashboardStoreInfo[] | null>
+let customStoresResolver: StoresResolver | null = null
+export function setStoresResolver(resolver: StoresResolver | null) {
+  customStoresResolver = resolver
+}
+
+// Optional live-search resolver — admin wires this to /platform
+// `storeAutocomplete(query)`, which talks to the same role-gated endpoint
+// GuavaPlatform's own selector uses (so an admin user can find any store in
+// the tenant, not just the prefetched ones). Falls back to local filter when
+// not registered (consumer app / no admin clients available).
+type StoresSearchResolver = (query: string) => Promise<DashboardStoreInfo[]>
+let customStoresSearchResolver: StoresSearchResolver | null = null
+export function setStoresSearchResolver(resolver: StoresSearchResolver | null) {
+  customStoresSearchResolver = resolver
+}
+
 export function useCurrentStore() {
   const selectedStoreId = useCookie<string | null>('current_store_id', { default: () => null })
 
@@ -33,22 +55,39 @@ export function useCurrentStore() {
     if (stores.value.length && !force) return currentStore.value
     isLoading.value = true
     try {
-      // In dev we skip the backend entirely (no API server running) and use
-      // the demo stores. In prod, race the fetch against a 1.5 s timeout so a
-      // hanging endpoint never freezes the whole dashboard (Promise.race +
-      // catch is the proven pattern from GuavagramPanel.load()).
+      // Race /web dashboardStores against a 1.5 s timeout so a slow/401'd
+      // API doesn't freeze the dashboard. dashboardStores already respects
+      // user permissions — admins get every store they manage, regular users
+      // get only theirs — so Guavagram inherits the access model without
+      // re-implementing role checks. /platform's userCurrent.mappedStores
+      // could give us the same thing without the legacy bearer dance, but
+      // its NSwag client lives in admin-only (not shared), so admin code
+      // that wants to bypass /web can register a resolver via `setStoresResolver`.
+      const timeout = new Promise<DashboardStoreInfo[] | null>((resolve) => setTimeout(() => resolve(null), 1500))
       let fetched: DashboardStoreInfo[] | null = null
-      if (import.meta.dev) {
-        // Build instances without calling `.fromJS` to avoid any risk of the
-        // dynamic helper barfing during SSR. Plain object cast is enough —
-        // downstream code only reads the four fields we set here.
-        fetched = DEV_STORES.map(s => Object.assign(new DashboardStoreInfo(), s)) as DashboardStoreInfo[]
-      } else {
-        const timeout = new Promise<DashboardStoreInfo[] | null>((resolve) => setTimeout(() => resolve(null), 1500))
+      if (customStoresResolver) {
+        try {
+          fetched = await Promise.race([customStoresResolver(), timeout])
+        } catch (err: any) {
+          console.warn('[useCurrentStore] custom resolver failed', err?.status ?? err?.response?.status)
+        }
+      }
+      if (!fetched || fetched.length === 0) {
         fetched = await Promise.race([
-          dashboardApiClient.dashboardStores().catch(() => null),
+          dashboardApiClient.dashboardStores().catch((err: any) => {
+            console.warn('[useCurrentStore] dashboardStores failed', err?.status ?? err?.response?.status)
+            return null
+          }),
           timeout,
         ])
+      }
+      if ((!fetched || fetched.length === 0) && import.meta.env?.VITE_USE_MOCK === 'true') {
+        // Demo stores ONLY when mocks are explicitly enabled (VITE_USE_MOCK).
+        // In normal dev we deliberately do NOT inject these — showing fake
+        // stores silently masked real failures (e.g. an admin whose stores
+        // weren't being fetched). An empty switcher is the honest state.
+        console.log('[useCurrentStore] backend empty + VITE_USE_MOCK → using DEV_STORES')
+        fetched = DEV_STORES.map(s => Object.assign(new DashboardStoreInfo(), s)) as DashboardStoreInfo[]
       }
       stores.value = fetched ?? []
       // Group inference is still best-effort: stores belonging to the same brand
@@ -89,12 +128,53 @@ export function useCurrentStore() {
   }
 
   const switchStore = (storeId: string) => {
-    const target = stores.value.find(s => s.storeId === storeId)
+    // Prefer the prefetched stores list, fall back to search results so the
+    // user can switch to a store that wasn't in the initial fetch (admins
+    // with hundreds of stores get paginated/top-N from autocomplete).
+    const target =
+      stores.value.find(s => s.storeId === storeId) ||
+      searchResults.value.find(s => s.storeId === storeId)
     if (!target) return
+    // Make sure it sticks around in `stores` so reads from currentStore
+    // (used by other panels) don't lose it.
+    if (!stores.value.find(s => s.storeId === storeId)) {
+      stores.value = [target, ...stores.value]
+    }
     currentStore.value = target
     selectedStoreId.value = storeId
     isGroupView.value = false
     currentGroupId.value = null
+  }
+
+  // Live store search — admin's autocomplete returns role-gated matches from
+  // the backend (handles tenants with thousands of stores where prefetching
+  // all of them is impractical). No-op fallback: local substring filter over
+  // the already-loaded `stores`.
+  const searchResults = ref<DashboardStoreInfo[]>([])
+  const isSearching = ref(false)
+  const searchStores = async (query: string): Promise<DashboardStoreInfo[]> => {
+    const q = (query || '').trim()
+    if (customStoresSearchResolver) {
+      try {
+        isSearching.value = true
+        const r = await customStoresSearchResolver(q)
+        searchResults.value = r
+        return r
+      } catch (err: any) {
+        console.warn('[useCurrentStore] searchStores failed', err?.status ?? err?.response?.status)
+        searchResults.value = []
+        return []
+      } finally {
+        isSearching.value = false
+      }
+    }
+    // Local fallback: filter prefetched list.
+    const lower = q.toLowerCase()
+    const filtered = lower
+      ? stores.value.filter(s => (s.displayName || '').toLowerCase().includes(lower))
+      : stores.value
+    searchResults.value = filtered
+    return filtered
   }
 
   const switchToGroup = (groupId: string) => {
@@ -123,6 +203,7 @@ export function useCurrentStore() {
   return {
     stores, groups, currentStore, currentGroup, groupStores,
     isGroupView, currentGroupId, activeGroup, activeGroupStores,
-    isLoading, load, switchStore, switchToGroup
+    isLoading, load, switchStore, switchToGroup,
+    searchStores, searchResults, isSearching,
   }
 }

@@ -19,6 +19,12 @@ const FALLBACK_SKIN: SkinDefinition = {
 
 export type HeroSubsection = 'cover' | 'avatar' | 'identity' | 'tags'
 
+// Per-subsection visibility. Missing keys default to visible. On the public
+// bio, a `false` value removes the subsection. In the editor (editable=true)
+// it stays mounted but is rendered at 40% opacity so the creator can still
+// click it to edit / re-enable.
+type HeroVisibility = Partial<Record<HeroSubsection, boolean>>
+
 const props = defineProps<{
   profile: any
   isFollowing?: boolean
@@ -26,7 +32,14 @@ const props = defineProps<{
   showcaseItems?: Array<{ imageUrl: string; label?: string; storeName?: string }>
   editable?: boolean
   selectedSubsection?: HeroSubsection | null
+  visibility?: HeroVisibility | null
 }>()
+
+const isSubVisible = (key: HeroSubsection): boolean => {
+  const v = props.visibility
+  if (!v) return true
+  return v[key] !== false
+}
 
 const emit = defineEmits<{
   (e: 'toggle-follow'): void
@@ -101,9 +114,11 @@ const headerSerifStyle = computed(() => skin.value.header.serif
   ? { fontFamily: "Georgia, 'Times New Roman', 'Noto Serif', serif" }
   : undefined)
 
-const showCover = computed(() => skin.value.cover.show)
-const showAvatar = computed(() => skin.value.avatar.show)
+const showCover = computed(() => skin.value.cover.show && (props.editable || isSubVisible('cover')))
+const showAvatar = computed(() => skin.value.avatar.show && (props.editable || isSubVisible('avatar')))
 const overlayName = computed(() => skin.value.cover.overlayName && showCover.value)
+const showIdentity = computed(() => props.editable || isSubVisible('identity'))
+const showTags = computed(() => props.editable || isSubVisible('tags'))
 const showcaseGrid = computed(() => skin.value.showcase.enabled && (props.showcaseItems ?? []).length > 0)
 const showcaseTiles = computed(() => (props.showcaseItems ?? []).slice(0, 4))
 </script>
@@ -120,7 +135,7 @@ const showcaseTiles = computed(() => (props.showcaseItems ?? []).slice(0, 4))
     <div v-if="showCover"
       @click.stop="onSubsectionClick('cover')"
       class="relative w-full bg-center bg-cover bg-gray-200 dark:bg-white/5"
-      :class="[coverAspectClass, subsectionClass('cover')]"
+      :class="[coverAspectClass, subsectionClass('cover'), { 'opacity-40': editable && !isSubVisible('cover') }]"
       :style="coverImageUrl ? { backgroundImage: `url('${coverImageUrl}')` } : { background: `linear-gradient(135deg, ${accentColor}, ${accentColor}80)` }">
       <!-- Layered gradients for depth -->
       <div class="absolute inset-0 bg-gradient-to-b from-black/5 via-transparent to-black/70"></div>
@@ -152,7 +167,7 @@ const showcaseTiles = computed(() => (props.showcaseItems ?? []).slice(0, 4))
         <div v-if="showAvatar"
           @click.stop="onSubsectionClick('avatar')"
           class="flex items-end gap-3 rounded-full"
-          :class="subsectionClass('avatar')">
+          :class="[subsectionClass('avatar'), { 'opacity-40': editable && !isSubVisible('avatar') }]">
           <div class="relative shrink-0 group/avatar">
             <!-- Subtle neutral glow behind avatar -->
             <div class="absolute inset-0 rounded-full blur-xl opacity-25 scale-110 bg-black"></div>
@@ -174,9 +189,10 @@ const showcaseTiles = computed(() => (props.showcaseItems ?? []).slice(0, 4))
 
       <div class="pt-4" :class="headerAlignClass">
         <div
+          v-if="showIdentity"
           @click.stop="onSubsectionClick('identity')"
           class="rounded-xl -mx-1 px-1 py-1"
-          :class="subsectionClass('identity')">
+          :class="[subsectionClass('identity'), { 'opacity-40': editable && !isSubVisible('identity') }]">
           <div v-if="!overlayName" class="flex items-center gap-2 flex-wrap"
             :class="skin.header.align === 'center' ? 'justify-center' : ''">
             <h1 class="text-[36px] font-black tracking-[-0.02em] leading-[0.95]"
@@ -258,12 +274,13 @@ const showcaseTiles = computed(() => (props.showcaseItems ?? []).slice(0, 4))
         </div>
 
         <!-- Tags -->
-        <div v-if="tags.length || editable"
+        <div v-if="(tags.length || editable) && showTags"
           @click.stop="onSubsectionClick('tags')"
           class="flex items-center gap-1.5 mt-4 flex-wrap rounded-xl -mx-1 px-1 py-1"
           :class="[
             skin.header.align === 'center' ? 'justify-center' : '',
             subsectionClass('tags'),
+            { 'opacity-40': editable && !isSubVisible('tags') },
           ]">
           <span v-for="t in tags" :key="t"
             class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-bold border transition-transform hover:scale-[1.04] active:scale-95"

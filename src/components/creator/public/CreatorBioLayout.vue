@@ -15,6 +15,11 @@ export type BioSection =
 
 const PROFILE_SUBSECTIONS: readonly HeroSubsection[] = ['cover', 'avatar', 'identity', 'tags']
 
+// Per-section visibility flags (subset of CreatorBioVisibility). Sections
+// not in the object default to visible. A `false` value hides the section
+// on both the editor preview and the public bio.
+type Visibility = Partial<Record<BioSection, boolean>>
+
 const props = withDefaults(defineProps<{
   profile: any
   featuredStore?: any | null
@@ -32,6 +37,7 @@ const props = withDefaults(defineProps<{
   isFollowing?: boolean
   showEngage?: boolean
   showEmptyFeaturedPlaceholder?: boolean
+  visibility?: Visibility | null
 }>(), {
   featuredStore: null,
   recommended: () => [],
@@ -44,7 +50,16 @@ const props = withDefaults(defineProps<{
   isFollowing: false,
   showEngage: true,
   showEmptyFeaturedPlaceholder: false,
+  visibility: null,
 })
+
+const isVisible = (key: BioSection): boolean => {
+  const v = props.visibility
+  if (!v) return true
+  // In the editor we want hidden sections still selectable, so they appear
+  // grayed out but not removed. Use a separate `interactive` branch below.
+  return v[key] !== false
+}
 
 const emit = defineEmits<{
   (e: 'select', key: BioSection): void
@@ -89,6 +104,7 @@ const reviewsMapped = computed(() =>
       :showcase-items="showcaseItems"
       :editable="interactive"
       :selected-subsection="selectedHeroSubsection"
+      :visibility="visibility ?? undefined"
       @toggle-follow="emit('toggle-follow')"
       @select-subsection="onHeroSubsection" />
 
@@ -96,7 +112,9 @@ const reviewsMapped = computed(() =>
     <slot name="after-hero" />
 
     <!-- Featured -->
-    <section v-if="featuredStore" class="px-5 mt-8">
+    <section v-if="featuredStore && (interactive || isVisible('featured'))"
+      class="px-5 mt-8"
+      :class="{ 'opacity-40': interactive && !isVisible('featured') }">
       <h2 class="text-[11px] font-black uppercase tracking-[0.2em] mb-3"
         style="color: var(--bio-accent, #16a34a);">Principal</h2>
       <div @click.stop="onSelect('featured')" :class="['rounded-2xl', ringClass('featured')]">
@@ -114,7 +132,9 @@ const reviewsMapped = computed(() =>
     </section>
 
     <!-- Recommended -->
-    <section v-if="recommended.length || interactive" class="px-5 mt-8">
+    <section v-if="(recommended.length || interactive) && (interactive || isVisible('recommended'))"
+      class="px-5 mt-8"
+      :class="{ 'opacity-40': interactive && !isVisible('recommended') }">
       <h2 class="text-[11px] font-black uppercase tracking-[0.2em] mb-3"
         style="color: var(--bio-text, #1a1c1b);">Recomendados</h2>
       <div @click.stop="onSelect('recommended')" :class="['rounded-2xl p-1 -m-1', ringClass('recommended')]">
@@ -128,7 +148,9 @@ const reviewsMapped = computed(() =>
     </section>
 
     <!-- Reseñas -->
-    <section v-if="reviewsMapped.length || interactive" class="px-5 mt-8">
+    <section v-if="(reviewsMapped.length || interactive) && (interactive || isVisible('reviews'))"
+      class="px-5 mt-8"
+      :class="{ 'opacity-40': interactive && !isVisible('reviews') }">
       <h2 class="text-[11px] font-black uppercase tracking-[0.2em] mb-3"
         style="color: var(--bio-text, #1a1c1b);">Reseñas</h2>
       <div @click.stop="onSelect('reviews')" :class="['rounded-2xl p-1 -m-1', ringClass('reviews')]">
@@ -137,7 +159,9 @@ const reviewsMapped = computed(() =>
     </section>
 
     <!-- Wishlist -->
-    <section v-if="wishlist.length || interactive" class="px-5 mt-8">
+    <section v-if="(wishlist.length || interactive) && (interactive || isVisible('wishlist'))"
+      class="px-5 mt-8"
+      :class="{ 'opacity-40': interactive && !isVisible('wishlist') }">
       <h2 class="text-[11px] font-black uppercase tracking-[0.2em] mb-3"
         style="color: var(--bio-text, #1a1c1b);">Lugares a los que me gustaría ir</h2>
       <div @click.stop="onSelect('wishlist')" :class="['rounded-2xl p-1 -m-1', ringClass('wishlist')]">
@@ -149,14 +173,18 @@ const reviewsMapped = computed(() =>
     <slot name="before-engage" />
 
     <!-- Engage -->
-    <section v-if="showEngage" class="px-5 mt-8">
+    <section v-if="showEngage && (interactive || isVisible('engage'))"
+      class="px-5 mt-8"
+      :class="{ 'opacity-40': interactive && !isVisible('engage') }">
       <div @click.stop="onSelect('engage')" :class="['rounded-2xl p-1 -m-1', ringClass('engage')]">
         <PublicCreatorEngageBanner :creator-name="profile?.name" />
       </div>
     </section>
 
     <!-- Social -->
-    <section v-if="externalLinks.length || interactive" class="px-5 mt-8">
+    <section v-if="(externalLinks.length || interactive) && (interactive || isVisible('social'))"
+      class="px-5 mt-8"
+      :class="{ 'opacity-40': interactive && !isVisible('social') }">
       <div @click.stop="onSelect('social')" :class="['rounded-2xl p-2 -m-2', ringClass('social')]">
         <PublicSocialFooter :links="externalLinks" />
       </div>

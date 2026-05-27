@@ -34,7 +34,24 @@ export type StoreCampaign = {
   colorIdx: number
   layout: string
   icon: string
+  // What the card does when tapped on the public bio:
+  //   'menu'     → opens the menu (optionally a linked dish via linkedItemId)
+  //   'combo'    → opens the linked bundle/combo (linkedBundleId)
+  //   'discount' → opens the menu with the linked real promotion (promotionId)
+  //                surfaced — claim voucher (QR/Apple/Google Wallet) + the
+  //                order-level discount. Falls back to 'menu' when unset.
+  kind?: 'menu' | 'combo' | 'discount'
   linkedItemId?: string
+  linkedBundleId?: string
+  // Real GuavaPlatform promotion id (from /public/store/{slug}/promotions).
+  // Binds a discount card to the actual voucher/discount engine instead of
+  // being a purely decorative "-10%" label.
+  promotionId?: string
+  // Per-product discount (kind='discount'). `discountItemIds` scopes which
+  // dishes show the struck price in the bio + menu; empty/undefined = whole
+  // menu. Consumed by useCampaignDiscounts on the public side.
+  discountPct?: number
+  discountItemIds?: string[]
   bioVisible: boolean
   // Free plan: only the "menú del día" campaign can be active on the bio.
   // The flag is semantic so renaming the title doesn't lose the free tier.
@@ -81,6 +98,9 @@ const makeSeed = (): StoreCampaign[] => [
 ]
 
 // Module-scoped so every call to useStoreCampaigns() returns the same ref.
+// Persistence is wired up from the admin side (see GuavagramPanel) which
+// attaches a deep watcher and pushes through storeProfileApiClient. Shared
+// can't reach admin-only modules so we just expose a hook.
 const campaigns = ref<StoreCampaign[]>(makeSeed())
 const collabsLoaded = ref(false)
 const loading = ref(false)

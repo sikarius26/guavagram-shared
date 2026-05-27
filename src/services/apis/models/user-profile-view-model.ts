@@ -8,6 +8,10 @@ export class UserProfileViewModel {
     bio!: string | undefined;
     city!: string | undefined;
     profileImageUrl!: string | undefined;
+    coverImageUrl!: string | undefined;
+    // Free-form JSON bag (style, visibility, etc.). Same pattern as
+    // StoreProfileViewModel.brandingSettings.
+    brandingSettings!: string | undefined;
     verified!: boolean;
     stats!: UserProfileStatsViewModel | undefined;
     externalLinks!: UserExternalLinkViewModel[] | undefined;

@@ -12,7 +12,7 @@
 import axios from 'axios'
 import type { AxiosInstance, AxiosRequestConfig, AxiosResponse, CancelToken } from 'axios'
 
-import { throwException, isAxiosError, http } from './api.client.shared'
+import { throwException, isAxiosError, http, USE_MOCK } from './api.client.shared'
 import { environment } from '../../environment'
 
 import type { CampaignStatusEnum } from './models/campaign-status-enum'
@@ -59,7 +59,7 @@ class MarketingApiClient implements IMarketingApiClient {
   }
 
   marketingCampaignCreate(req: any, cancelToken?: CancelToken): Promise<any> {
-    if (import.meta.dev) {
+    if (USE_MOCK) {
       return Promise.resolve({ ...req, id: `cmp-${Date.now()}`, status: 0, createdAt: new Date().toISOString() })
     }
     const url_ = `${this.baseUrl}/dashboard/marketing/campaign`
@@ -70,7 +70,7 @@ class MarketingApiClient implements IMarketingApiClient {
   }
 
   marketingCampaigns(status?: CampaignStatusEnum, cancelToken?: CancelToken): Promise<any[]> {
-    if (import.meta.dev) {
+    if (USE_MOCK) {
       const all = getMockMyCampaigns()
       return Promise.resolve(status === undefined ? all : all.filter(c => c.status === status))
     }
@@ -80,14 +80,14 @@ class MarketingApiClient implements IMarketingApiClient {
   }
 
   marketingStats(storeId: string, cancelToken?: CancelToken): Promise<any> {
-    if (import.meta.dev) return Promise.resolve({ ...getMockMarketingStats(), storeId })
+    if (USE_MOCK) return Promise.resolve({ ...getMockMarketingStats(), storeId })
     const url_ = `${this.baseUrl}/dashboard/marketing/stats?storeId=${encodeURIComponent(storeId)}`
     return this.tryRequest<any>({ url: url_, method: 'Get', headers: { Accept: 'application/json' }, cancelToken },
       () => ({ ...getMockMarketingStats(), storeId }))
   }
 
   marketingBoost(req: any, cancelToken?: CancelToken): Promise<any> {
-    if (import.meta.dev) {
+    if (USE_MOCK) {
       const days = req?.days ?? 7
       const until = new Date()
       until.setDate(until.getDate() + days)

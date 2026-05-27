@@ -42,6 +42,7 @@ const resolvedIcon = (() => props.active && props.activeIcon ? props.activeIcon 
         ? 'font-semibold border-l-[3px]'
         : 'text-[#888] hover:text-[#1a1c1b] hover:bg-[#f7f7f7]',
       disabled ? 'cursor-pointer opacity-80' : '',
+      lockReason ? 'opacity-50 hover:opacity-80' : '',
     ]"
     :style="active ? `background-color: ${accentColor}14; color: ${accentColor}; border-left-color: ${accentColor};` : ''"
     :aria-current="active ? 'page' : undefined"

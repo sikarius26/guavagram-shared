@@ -74,6 +74,11 @@ export interface MockReviewItem {
   habitual?: boolean
   // Sort hint so user-submitted reviews land at the top of the list.
   isUserReview?: boolean
+  // Where the review came from. 'guavagram' = written in-app (can be verified);
+  // 'google' = synced from the restaurant's Google Business Profile. Real
+  // Google sync needs a Guava endpoint (GBP read API) — until then a subset of
+  // the mock list is flagged 'google' so the dual-source UI is exercised.
+  source?: 'guavagram' | 'google'
 }
 
 const REVIEW_AVATAR_COLORS = ['#10b981', '#6366f1', '#f59e0b', '#ec4899', '#0ea5e9', '#a855f7', '#ef4444', '#14b8a6']
@@ -221,6 +226,9 @@ export function getMockReviewsList(slug: string, _opts: MockReviewsOptions = {})
       ownerReply: tpl.ownerReply,
       tags: [...tpl.tags],
       imageUrl: tpl.photos > 0 ? placeholderDishPhoto(`${slug}-r${i + 1}`, 800, 600) : undefined,
+      // Flag ~1 in 3 as Google-sourced so both badges show until the real
+      // GBP sync endpoint lands.
+      source: (i % 3 === 1 ? 'google' : 'guavagram') as 'guavagram' | 'google',
     }
   })
 }

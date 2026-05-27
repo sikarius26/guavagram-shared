@@ -1,18 +1,47 @@
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { useCurrentStore } from '~/composables/useCurrentStore'
 
 const {
   stores, currentStore, currentGroup, activeGroup, activeGroupStores,
   isGroupView, switchStore, switchToGroup,
+  searchStores, searchResults, isSearching,
 } = useCurrentStore()
 
 const switcherOpen = ref(false)
 const switcherRef = ref<HTMLElement | null>(null)
+const searchInputRef = ref<HTMLInputElement | null>(null)
+const searchQuery = ref('')
 
-const toggle = () => { switcherOpen.value = !switcherOpen.value }
-const pickStore = (storeId: string) => { switchStore(storeId); switcherOpen.value = false }
+const toggle = () => {
+  switcherOpen.value = !switcherOpen.value
+  if (switcherOpen.value) {
+    // Auto-focus search and prime results with whatever's prefetched.
+    nextTick(() => searchInputRef.value?.focus())
+    if (!searchResults.value.length) searchStores('')
+  }
+}
+const pickStore = (storeId: string) => {
+  switchStore(storeId)
+  switcherOpen.value = false
+  searchQuery.value = ''
+}
 const pickGroup = (groupId: string) => { switchToGroup(groupId); switcherOpen.value = false }
+
+// Debounced live search against the backend autocomplete. 250 ms is enough
+// to skip every keystroke while still feeling responsive.
+let searchTimer: ReturnType<typeof setTimeout> | null = null
+watch(searchQuery, (q) => {
+  if (searchTimer) clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => searchStores(q), 250)
+})
+
+// Display list: backend search results if we've ever searched, else the
+// prefetched stores list. Keeps the dropdown populated on first open.
+const visibleStores = computed(() => {
+  if (searchQuery.value.trim()) return searchResults.value
+  return searchResults.value.length ? searchResults.value : stores.value
+})
 
 const handleOutside = (e: MouseEvent) => {
   if (!switcherRef.value) return
@@ -63,8 +92,25 @@ onBeforeUnmount(() => {
     >
       <div
         v-if="switcherOpen"
-        class="absolute left-0 right-0 mt-1 max-h-80 overflow-y-auto rounded-xl bg-white shadow-[0_12px_40px_rgba(0,0,0,0.12)] ring-1 ring-black/[0.04] z-30 p-1.5"
+        class="absolute left-0 right-0 mt-1 max-h-80 flex flex-col rounded-xl bg-white shadow-[0_12px_40px_rgba(0,0,0,0.12)] ring-1 ring-black/[0.04] z-30 p-1.5"
       >
+        <!-- In-dropdown search. Live-queries Platform's autocomplete so admin
+             users with hundreds of stores can find any of them. -->
+        <div class="px-1.5 pt-1 pb-2 shrink-0">
+          <div class="relative">
+            <span class="mdi mdi-magnify absolute left-2.5 top-1/2 -translate-y-1/2 text-[#999] text-sm"></span>
+            <input
+              ref="searchInputRef"
+              v-model="searchQuery"
+              type="text"
+              placeholder="Buscar tienda…"
+              class="w-full pl-8 pr-3 py-1.5 text-[11px] bg-[#f7f7f7] border border-transparent rounded-lg focus:outline-none focus:border-[#ddd] placeholder:text-[#aaa]"
+              @click.stop
+            />
+          </div>
+        </div>
+
+        <div class="flex-1 overflow-y-auto">
         <template v-if="currentGroup">
           <p class="px-2.5 pt-1 pb-1.5 text-[9px] font-bold text-[#aaa] uppercase tracking-[0.15em]">Grupo</p>
           <button
@@ -86,7 +132,7 @@ onBeforeUnmount(() => {
         </template>
 
         <button
-          v-for="s in stores"
+          v-for="s in visibleStores"
           :key="s.storeId"
           type="button"
           @click="pickStore(s.storeId)"
@@ -104,6 +150,12 @@ onBeforeUnmount(() => {
           ></span>
         </button>
 
+        <!-- Empty / loading states for live search. -->
+        <p v-if="isSearching" class="px-2.5 py-2 text-[10px] text-[#999]">Buscando…</p>
+        <p v-else-if="searchQuery.trim() && !visibleStores.length" class="px-2.5 py-2 text-[10px] text-[#999]">
+          Sin resultados para "{{ searchQuery }}"
+        </p>
+
         <div class="mt-1 pt-1 border-t border-[#eee]">
           <button
             type="button"
@@ -112,6 +164,7 @@ onBeforeUnmount(() => {
             <span class="mdi mdi-plus-circle-outline text-[#666] text-base"></span>
             <p class="text-[11px] font-semibold text-[#555]">Añadir local</p>
           </button>
+        </div>
         </div>
       </div>
     </Transition>

@@ -4,6 +4,11 @@ export class DashboardStoreProfile {
     description!: string | undefined;
     accentColor!: string | undefined;
     logoUrl!: string | undefined;
+    // coverUrl is added client-side ahead of the backend exposing it. When
+    // the Guava platform API ships the field, the NSwag regen will keep this
+    // shape and persistence flips on automatically. Until then the value
+    // round-trips via the local /api/_mock/store/[slug]/bio-config endpoint.
+    coverUrl!: string | undefined;
     slugName!: string | undefined;
     phoneNumber!: string | undefined;
     emailAddress!: string | undefined;

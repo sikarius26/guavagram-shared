@@ -12,7 +12,77 @@ import {
   DEFAULT_TEAM, DEFAULT_REFERRAL_CONFIG,
 } from '~/services/apis/mocks/admin/adminSettings.mock'
 import type { StorePlan } from '~/services/apis/mocks/admin/adminStores.mock'
-import type { DisputeStatus } from '~/services/admin/types/admin-dispute'
+import type { AdminDispute, DisputeStatus } from '~/services/admin/types/admin-dispute'
+import { useReviewDisputes, type ReviewDispute, type DisputeStatus as ReviewDisputeStatus } from '~/composables/useReviewDisputes'
+
+// Map a real ReviewDispute (created by a restaurant in the dashboard) into the
+// AdminDispute shape used by AdminDisputesPanel. Keeps a single source of truth
+// for review claims while the broader admin panel keeps financial mocks.
+const REVIEW_TO_ADMIN_STATUS: Record<ReviewDisputeStatus, DisputeStatus> = {
+  none:                'open',
+  disputed:            'awaiting_creator',
+  under_review:        'in_review',
+  resolved_creator:    'resolved_for_creator',
+  resolved_restaurant: 'resolved_for_restaurant',
+  dismissed:           'rejected',
+}
+
+function adaptReviewDispute(d: ReviewDispute): AdminDispute {
+  const messages: AdminDispute['messages'] = [
+    { at: d.createdAt, from: 'restaurant', authorLabel: d.storeName, text: d.restaurantExplanation },
+  ]
+  if (d.creatorDefense && d.creatorRespondedAt) {
+    messages.push({
+      at: d.creatorRespondedAt,
+      from: 'creator',
+      authorLabel: '@' + d.creatorHandle,
+      text: d.creatorDefense,
+    })
+  }
+  if (d.adminNotes && d.resolvedAt) {
+    messages.push({
+      at: d.resolvedAt,
+      from: 'support',
+      authorLabel: 'Soporte Guavagram',
+      text: d.adminNotes,
+    })
+  }
+  return {
+    id: d.id,
+    kind: 'review_claim',
+    status: REVIEW_TO_ADMIN_STATUS[d.status],
+    openedAt: d.createdAt,
+    resolvedAt: d.resolvedAt,
+    actorUserId: d.storeId,
+    actorLabel: d.storeName,
+    counterpartyUserId: d.creatorHandle,
+    counterpartyLabel: '@' + d.creatorHandle,
+    amountEur: 0,
+    summary: `Reclamación sobre reseña de ${d.reviewRating ?? '?'}⭐ publicada por @${d.creatorHandle}`,
+    messages,
+    reviewClaim: {
+      reviewId: d.reviewId,
+      reviewRating: d.reviewRating ?? 0,
+      reviewText: d.reviewText ?? '',
+      reviewReceiptUrl: '',
+      reviewPlacePhotoUrl: '',
+      reviewAuthorId: d.creatorHandle,
+      reviewAuthorHandle: d.creatorHandle,
+      reviewPublishedAt: d.createdAt,
+      restaurantClaim: {
+        reasons: [d.reason],
+        text: d.restaurantExplanation,
+        evidenceUrls: [],
+        submittedAt: d.createdAt,
+      },
+      creatorDefense: d.creatorDefense && d.creatorRespondedAt ? {
+        text: d.creatorDefense,
+        evidenceUrls: d.creatorEvidenceUrls ?? [],
+        submittedAt: d.creatorRespondedAt,
+      } : undefined,
+    },
+  }
+}
 
 function assertDev(name: string): void {
   if (!import.meta.dev) {
@@ -46,6 +116,7 @@ function planFee(plan: StorePlan): number {
 }
 
 export function useAdminMocks() {
+  const reviewDisputes = useReviewDisputes()
   return {
     // ============ READERS (reactive) ============
     getStores: () => adminStore.stores,
@@ -61,8 +132,18 @@ export function useAdminMocks() {
     getEarnings: () => adminStore.earnings,
     getEarningById: (id: string) => adminStore.earnings.find(e => e.id === id) ?? null,
     getPayouts: () => adminStore.payouts,
-    getDisputes: () => adminStore.disputes,
-    getDisputeById: (id: string) => adminStore.disputes.find(d => d.id === id) ?? null,
+    // Merges seeded admin-platform disputes (financial + sample review_claims)
+    // with the real review-claim disputes created by restaurants via the
+    // dashboard. Both sources are reactive so admins see new disputes live.
+    getDisputes: (): AdminDispute[] => [
+      ...reviewDisputes.disputes.value.map(adaptReviewDispute),
+      ...adminStore.disputes,
+    ],
+    getDisputeById: (id: string): AdminDispute | null => {
+      const real = reviewDisputes.disputes.value.find(d => d.id === id)
+      if (real) return adaptReviewDispute(real)
+      return adminStore.disputes.find(d => d.id === id) ?? null
+    },
     getReviewQueue: () => adminStore.reviewQueue,
     getUgcQueue: () => adminStore.ugcQueue,
     getReports: () => adminStore.reports,
@@ -223,6 +304,22 @@ export function useAdminMocks() {
 
     // ============ DISPUTES ============
     resolveDispute: (disputeId: string, side: 'restaurant' | 'creator' | 'request_info', supportMessage?: string) => {
+      // Real review-claim disputes (created from the restaurant dashboard) live
+      // in useReviewDisputes. Delegate so the restaurant + creator UIs reflect
+      // the resolution immediately.
+      const real = reviewDisputes.disputes.value.find(d => d.id === disputeId)
+      if (real) {
+        if (side === 'request_info') return // not a terminal action for review claims
+        reviewDisputes.resolve(disputeId, side === 'restaurant' ? 'restaurant' : 'creator', supportMessage)
+        appendAudit({
+          type: side === 'restaurant' ? 'review.rejected' : 'review.approved',
+          actorRole: 'content_mod',
+          targetId: real.id, targetLabel: `${real.storeName} vs @${real.creatorHandle}`,
+          payload: { side, kind: 'review_claim' },
+        })
+        return
+      }
+
       const d = adminStore.disputes.find(d => d.id === disputeId)
       if (!d) return
       const now = new Date().toISOString()

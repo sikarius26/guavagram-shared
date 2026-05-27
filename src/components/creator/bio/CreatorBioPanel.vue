@@ -15,12 +15,14 @@ import CreatorBioTagsEditor from './CreatorBioTagsEditor.vue'
 import CreatorVerificationModal from './CreatorVerificationModal.vue'
 import { useCreatorBio } from '~/composables/useCreatorBio'
 import { useCurrentCreator } from '~/composables/useCurrentCreator'
+import { useCreatorBioStyle, type CreatorBioVisibility } from '~/composables/useCreatorBioStyle'
 import { useCreatorVerification } from '~/composables/useCreatorVerification'
 import { useCityContext } from '~/composables/useCityContext'
 import { notifier } from '~/services/notification'
 
 const bio = useCreatorBio()
-const { profile, load: loadCreator } = useCurrentCreator()
+const { profile, load: loadCreator, save: saveCreator } = useCurrentCreator()
+const { visibility, toggleVisibility } = useCreatorBioStyle()
 const { currentCityName } = useCityContext()
 const verification = useCreatorVerification()
 const showVerifyModal = ref(false)
@@ -31,6 +33,35 @@ const selectSection = (key: BioSection) => {
   selectedSection.value = selectedSection.value === key ? null : key
 }
 const clearSelection = () => { selectedSection.value = null }
+
+// Map editor section keys → CreatorBioVisibility keys. Most are 1:1; the
+// hero subsections (cover/avatar/identity/tags) match by name.
+const visibilityKeyFor = (k: BioSection): keyof CreatorBioVisibility | null => {
+  switch (k) {
+    case 'cover': return 'cover'
+    case 'avatar': return 'avatar'
+    case 'identity': return 'identity'
+    case 'tags': return 'tags'
+    case 'featured': return 'featured'
+    case 'recommended': return 'recommended'
+    case 'reviews': return 'reviews'
+    case 'wishlist': return 'wishlist'
+    case 'engage': return 'engage'
+    case 'social': return 'social'
+    default: return null
+  }
+}
+const currentVisibilityKey = computed(() =>
+  selectedSection.value ? visibilityKeyFor(selectedSection.value) : null,
+)
+const currentVisible = computed(() => {
+  const k = currentVisibilityKey.value
+  return k ? visibility.value[k] !== false : true
+})
+const toggleCurrentVisibility = () => {
+  const k = currentVisibilityKey.value
+  if (k) toggleVisibility(k)
+}
 
 // Bloquea scroll del body mientras el editor sheet está abierto — solo en mobile.
 // En desktop (lg ≥1080px) el editor es un panel docked y no necesita lock.
@@ -115,7 +146,12 @@ const isSaving = ref(false)
 const handleSave = async () => {
   isSaving.value = true
   try {
-    await bio.save()
+    // Two saves in parallel:
+    //  - bio.save(): featured/recommended/wishlist/reviews (uses creator API)
+    //  - saveCreator(): profile basics + cover + brandingSettings JSON via
+    //    /api/_mock/creator/[handle]/bio-config (file-backed mock-store
+    //    bridge — survives the :3004→:3003 process boundary)
+    await Promise.all([bio.save(), saveCreator()])
     notifier.notifySuccess(t('bioSaved'))
   } catch (e) {
     notifier.notifyError(t('couldNotSave'), e as Error)
@@ -244,6 +280,17 @@ onBeforeUnmount(() => {
           <h3 class="text-[14px] font-bold text-[#1a1c1b] truncate">{{ currentMeta.title }}</h3>
           <p class="text-[11px] text-[#888] truncate">{{ currentMeta.desc }}</p>
         </div>
+        <!-- Per-section show/hide toggle. Applies live to the preview and
+             persists with the next Save (brandingSettings.visibility). -->
+        <button v-if="currentVisibilityKey" type="button" @click="toggleCurrentVisibility"
+          class="h-9 px-3 rounded-lg flex items-center gap-1.5 text-[11px] font-bold shrink-0 transition-colors"
+          :class="currentVisible
+            ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+            : 'bg-[#f5f5f5] text-[#888] hover:bg-[#ececec]'"
+          :title="currentVisible ? 'Visible en tu bio pública' : 'Oculto en tu bio pública'">
+          <span class="mdi text-[14px]" :class="currentVisible ? 'mdi-eye-outline' : 'mdi-eye-off-outline'"></span>
+          {{ currentVisible ? 'Visible' : 'Oculto' }}
+        </button>
         <button v-if="selectedSection" type="button" @click="clearSelection"
           class="w-9 h-9 rounded-lg hover:bg-[#f5f5f5] flex items-center justify-center shrink-0"
           title="Cerrar">

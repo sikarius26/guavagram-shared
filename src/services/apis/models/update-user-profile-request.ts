@@ -5,6 +5,10 @@ export class UpdateUserProfileRequest {
     bio!: string | undefined;
     city!: string | undefined;
     profileImageUrl!: string | undefined;
+    coverImageUrl!: string | undefined;
+    // Free-form JSON bag (style, visibility, etc.). Mirrors the pattern used
+    // by StoreProfileViewModel.brandingSettings for restaurants.
+    brandingSettings!: string | undefined;
 
 
     init(_data?: any, _mappings?: any) {

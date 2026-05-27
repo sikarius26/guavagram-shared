@@ -4,8 +4,6 @@ import { GoogleLogin } from 'vue3-google-login'
 import { useAuth } from '~/composables/useAuth'
 import { notifier } from '~/services/notification'
 import { TemporaryTokenTypeEnum } from '~/services/apis/models/temporary-token-type-enum'
-import { LoginProviderTypeEnum } from '~/services/apis/models/login-provider-type-enum'
-import { UserLoginRequest } from '~/services/apis/models/user-login-request'
 import { userApiClient } from '~/services/apis/api.client.user'
 import Modal from '~/components/global/Modal.vue'
 import Spinner from '~/components/shared/Spinner.vue'
@@ -53,53 +51,33 @@ const canProceed = computed(() => {
 
 const continueWithContact = async () => {
   if (!canProceed.value) return
-  
+
+  // The trimmed shared user client has no `userCheckExists`, so we don't
+  // branch new-vs-existing up front. We register (which creates the account
+  // and sends the verification code) and always land on the code screen; if
+  // the account already exists the register call throws — harmless, the
+  // TokenVerify screen has a "resend" button to re-issue the code.
   try {
     ;(userApiClient as any).baseUrl = config.public.apiBase
-    
+
     if (contactType.value === 'email') {
-      const checkRequest = UserLoginRequest.fromJS({
-        loginProviderTypeId: LoginProviderTypeEnum.EMAIL,
-        tokenOrPassword: 'temp',
-        email: email.value
-      })
-      const exists = await userApiClient.userCheckExists(checkRequest)
-      
-      if (exists) {
-        try {
-          await register(email.value, 'temp-password-not-used')
-        } catch (error: any) {
-          console.log('error', error)
-        }
-        registrationSource.value = email.value
-        postRegistration.value = true
+      try {
+        await register(email.value, 'temp-password-not-used')
+      } catch (e: any) {
         userExists.value = true
-      } else {
-        emit('dismiss', true, undefined, undefined, email.value, 'email', false)
       }
+      registrationSource.value = email.value
+      postRegistration.value = true
     } else if (contactType.value === 'phone') {
       const cleanPhone = phoneNumber.value.replace(/\s+/g, '')
       const fullPhone = `${phoneDialCode.value}${cleanPhone}`
-      const checkRequest = UserLoginRequest.fromJS({
-        loginProviderTypeId: LoginProviderTypeEnum.PHONE,
-        tokenOrPassword: 'temp',
-        phoneNumber: cleanPhone,
-        phoneDialCode: phoneDialCode.value
-      })
-      const exists = await userApiClient.userCheckExists(checkRequest)
-      
-      if (exists) {
-        try {
-          await register(fullPhone, 'temp-password-not-used', phoneDialCode.value)
-        } catch (error: any) {
-          console.log('error', error)
-        }
-        registrationSource.value = fullPhone
-        postRegistration.value = true
+      try {
+        await register(fullPhone, 'temp-password-not-used', phoneDialCode.value)
+      } catch (e: any) {
         userExists.value = true
-      } else {
-        emit('dismiss', true, undefined, undefined, fullPhone, 'phone', false)
       }
+      registrationSource.value = fullPhone
+      postRegistration.value = true
     }
   } catch (error) {
     notifier.notifyError(t('registrationError'), error as Error)

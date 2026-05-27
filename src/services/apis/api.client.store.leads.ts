@@ -7,7 +7,7 @@
 //   POST /api/stores/{storeId}/creator-leads/{leadId}/offer
 //   GET  /api/stores/{storeId}/creator-leads/stats
 
-import { http, throwException, isAxiosError } from './api.client.shared'
+import { http, throwException, isAxiosError, USE_MOCK } from './api.client.shared'
 import { StoreCreatorLeadViewModel } from './models/store-creator-lead-view-model'
 import { CreatorDiscountCodeViewModel } from './models/creator-discount-code-view-model'
 import type { SendCreatorOfferRequest } from './models/send-creator-offer-request'
@@ -31,7 +31,7 @@ function baseUrl(): string {
 }
 
 export async function storeCreatorLeadsGet(storeId: string): Promise<StoreCreatorLeadViewModel[]> {
-  if (import.meta.dev) return getMockLeadsForStore(storeId)
+  if (USE_MOCK) return getMockLeadsForStore(storeId)
   try {
     const res = await http.get(`${baseUrl()}/api/stores/${encodeURIComponent(storeId)}/creator-leads`, {
       headers: { Accept: 'application/json' },
@@ -47,7 +47,7 @@ export async function storeCreatorLeadsGet(storeId: string): Promise<StoreCreato
 }
 
 export async function storeCreatorLeadsStatsGet(storeId: string): Promise<StoreCreatorLeadsStats> {
-  if (import.meta.dev) return getMockLeadsStatsForStore(storeId)
+  if (USE_MOCK) return getMockLeadsStatsForStore(storeId)
   try {
     const res = await http.get(`${baseUrl()}/api/stores/${encodeURIComponent(storeId)}/creator-leads/stats`, {
       headers: { Accept: 'application/json' },
@@ -68,7 +68,7 @@ export async function storeCreatorLeadsBulkSendOffer(
   if (!request.leadIds || request.leadIds.length === 0) {
     return { success: true, created: [], failed: [] }
   }
-  if (import.meta.dev) {
+  if (USE_MOCK) {
     return recordBulkOffersSent(request.leadIds, request.template)
   }
   try {
@@ -102,7 +102,7 @@ export async function storeCreatorLeadsBulkSendOffer(
 
 export async function storeCreatorLeadSendOffer(storeId: string, request: SendCreatorOfferRequest): Promise<SendOfferResponse> {
   if (!request.leadId) throw new Error('leadId is required')
-  if (import.meta.dev) {
+  if (USE_MOCK) {
     const discount = recordOfferSent(request.leadId, {
       code: request.code ?? '',
       percentOff: request.percentOff,

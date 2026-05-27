@@ -50,21 +50,49 @@ let hydrated = false
 let hydrating = false
 let pushTimer: ReturnType<typeof setTimeout> | null = null
 
+// Strip session-scoped blob: URLs from a photo list. Old entries created
+// before we switched gallery uploads to base64 still live in the mock
+// backend file and would 404 on every render. Returning them filtered also
+// lets the next schedulePush rewrite the cleaner list to disk.
+function dropDeadBlobUrls(photos: VenuePhoto[]): VenuePhoto[] {
+  return photos.filter(p => !p.url || !p.url.startsWith('blob:'))
+}
+
 async function hydrate() {
   if (typeof window === 'undefined') return
   if (hydrated || hydrating) return
   hydrating = true
+  let didCleanup = false
   try {
     const res = await fetch(API_URL)
     if (res.ok) {
       const data: MediaState | null = await res.json().catch(() => null)
       if (data) {
-        if (Array.isArray(data.venuePhotos)) venuePhotos.value = data.venuePhotos
-        if (data.menuItemPhotos && typeof data.menuItemPhotos === 'object') menuItemPhotos.value = data.menuItemPhotos
+        if (Array.isArray(data.venuePhotos)) {
+          const cleaned = dropDeadBlobUrls(data.venuePhotos)
+          if (cleaned.length !== data.venuePhotos.length) didCleanup = true
+          venuePhotos.value = cleaned
+        }
+        if (data.menuItemPhotos && typeof data.menuItemPhotos === 'object') {
+          const cleaned: typeof data.menuItemPhotos = {}
+          for (const [k, v] of Object.entries(data.menuItemPhotos)) {
+            if (!v?.url?.startsWith('blob:')) cleaned[k] = v
+            else didCleanup = true
+          }
+          menuItemPhotos.value = cleaned
+        }
       }
     }
   } catch { /* network failure → defaults */ }
-  finally { hydrating = false; hydrated = true }
+  finally {
+    hydrating = false
+    hydrated = true
+    // If we filtered out dead blob: URLs during hydrate, push the cleaned
+    // state back to disk so the next reload doesn't re-load the same dead
+    // entries. Without this the watcher's schedulePush short-circuits
+    // because `hydrated` flipped after the assignment.
+    if (didCleanup) schedulePush()
+  }
 }
 
 function schedulePush() {

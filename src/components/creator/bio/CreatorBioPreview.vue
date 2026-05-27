@@ -18,7 +18,7 @@ const emit = defineEmits<{ (e: 'select', key: BioSection): void }>()
 
 const { profile } = useCurrentCreator()
 const { featuredStore, recommended, wishlist, reviews } = useCreatorBio()
-const { style, previewRootStyle } = useCreatorBioStyle()
+const { style, previewRootStyle, visibility } = useCreatorBioStyle()
 const { isFullyVerified } = useCreatorVerification()
 
 const skin = computed(() => getSkin(style.value.skinId))
@@ -68,6 +68,7 @@ const showcaseItems = computed(() => {
     :showcase-items="showcaseItems"
     :interactive="interactive"
     :selected="selected"
+    :visibility="visibility"
     :show-empty-featured-placeholder="true"
     @select="(k: BioSection) => emit('select', k)" />
 </template>
