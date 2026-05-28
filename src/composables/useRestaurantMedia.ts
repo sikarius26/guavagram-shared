@@ -135,17 +135,27 @@ export function useRestaurantMedia(slug?: Ref<string | null | undefined> | strin
   // brandingSettings bag the admin Save / autosave POSTs to /platform). Any
   // mutation here triggers useBioConfig.schedulePush, so the gallery
   // round-trips through Guava platform like every other bio field.
-  const bioBound = (() => {
-    if (!slug) return null
-    const slugVal = typeof slug === 'string' ? slug : (slug.value || '')
-    if (!slugVal) return null
+  // Note: we call useBioConfig as long as `slug` is provided. Empty/null slug
+  // checks happen INSIDE useBioConfig (it short-circuits its hydrate + reads
+  // when the slug is empty), so this composable stays reactive — when the
+  // parent's slug ref later fills in, the underlying bioConfig hydrates and
+  // venuePhotos surfaces without a re-mount.
+  const bioBound = slug ? (() => {
     const { config } = useBioConfig(slug as any)
     const venuePhotosBound = computed<VenuePhoto[]>({
       get: () => (Array.isArray(config.value.venuePhotos) ? (config.value.venuePhotos as VenuePhoto[]) : []),
-      set: (next: VenuePhoto[]) => { (config.value as any).venuePhotos = next },
+      // IMPORTANT: useBioConfig.config is a computed whose getter returns
+      // a fresh `withDefaults(...)` object each read. Mutating one of its
+      // fields (`config.value.venuePhotos = next`) writes into a throwaway
+      // object — the store ref isn't touched and the autosave never fires.
+      // Replace the WHOLE config so the computed's setter runs, store.value
+      // is rewritten and schedulePush() queues the POST to /platform.
+      set: (next: VenuePhoto[]) => {
+        config.value = { ...config.value, venuePhotos: next as any }
+      },
     })
     return { config, venuePhotosBound }
-  })()
+  })() : null
 
   if (!bioBound) {
     // Legacy mode (no slug): keep the local-mock state alive for old callers.

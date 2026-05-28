@@ -61,15 +61,23 @@ const COOKIE_MAX_AGE = 60 * 60 * 24 * 365 // 1 year — survives browser close
 
 export function useCurrentStore() {
   // Rich cookie (current). Persistent (1y) so it survives browser restarts.
+  // `path: '/'` es obligatorio: sin él, el navegador escope la cookie al
+  // path donde se escribió (p.ej. /dashboard/bio) y otras rutas como /r/[slug]
+  // o /ca/dashboard/bio no la ven, lo que se traduce en "El teu restaurant"
+  // tras navegar.
   const persistedStore = useCookie<PersistedStore | null>('current_store', {
     default: () => null,
     maxAge: COOKIE_MAX_AGE,
+    path: '/',
+    sameSite: 'lax',
   })
   // Legacy cookie — older sessions only saved the id. Read on first boot so
   // returning users don't lose their selection on the cookie upgrade.
   const legacyStoreId = useCookie<string | null>('current_store_id', {
     default: () => null,
     maxAge: COOKIE_MAX_AGE,
+    path: '/',
+    sameSite: 'lax',
   })
 
   // Immediate rehydration: if the in-memory `currentStore` is still null

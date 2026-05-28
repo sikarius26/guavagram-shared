@@ -4,9 +4,18 @@ import { useCurrentStore } from '~/composables/useCurrentStore'
 
 const {
   stores, currentStore, currentGroup, activeGroup, activeGroupStores,
-  isGroupView, switchStore, switchToGroup,
+  isGroupView, isLoading, switchStore, switchToGroup,
   searchStores, searchResults, isSearching,
 } = useCurrentStore()
+
+// "Está cargando" para el chip principal: si la cookie aún no rehidrató (o
+// trae un objeto a medio rellenar sin displayName) y `load()` sigue en curso,
+// mostramos un skeleton en vez del placeholder "Tu restaurante" — éste sugería
+// que el usuario no tenía tienda seleccionada cuando en realidad solo estaba
+// esperando a que volviera la lista de /platform.
+const isHydrating = computed(() =>
+  isLoading.value && !isGroupView.value && !(currentStore.value?.displayName || '').trim(),
+)
 
 const switcherOpen = ref(false)
 const switcherRef = ref<HTMLElement | null>(null)
@@ -72,8 +81,9 @@ onBeforeUnmount(() => {
         <span v-else class="mdi mdi-storefront-outline text-[#666] text-sm"></span>
       </div>
       <div class="flex-1 min-w-0 text-left">
-        <p class="text-[12px] font-semibold text-[#1a1c1b] truncate">
-          {{ isGroupView ? (activeGroup?.name || 'Grupo') : (currentStore?.displayName || $t('yourStore')) }}
+        <p v-if="isHydrating" class="h-3 w-24 rounded bg-[#e5e5e5] animate-pulse"></p>
+        <p v-else class="text-[12px] font-semibold text-[#1a1c1b] truncate">
+          {{ isGroupView ? (activeGroup?.name || 'Grupo') : ((currentStore?.displayName || '').trim() || $t('yourStore')) }}
         </p>
         <p v-if="isGroupView" class="text-[9px] text-[#888] truncate">
           Vista de grupo · {{ activeGroupStores.length }} locales
