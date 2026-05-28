@@ -23,7 +23,13 @@
 export type DevModuleKey = 'reservas' | 'pedidos' | 'empleados' | 'marketing'
 export type DevModules = Record<DevModuleKey, boolean>
 
-const COOKIE_KEY = 'guava.dev.modules'
+// Versioned key (v2) — bumped when the default state changed from
+// "all false" to "all on". Reusing the original key would let stale v1
+// cookies (all-false from prior sessions) keep overriding the new default,
+// so the only way for an existing user to see the happy-path baseline would
+// be to manually clear cookies. The version bump makes the migration
+// automatic: v1 cookies are simply ignored, v2 starts fresh with all-on.
+const COOKIE_KEY = 'guava.dev.modules.v2'
 const KEYS: DevModuleKey[] = ['reservas', 'pedidos', 'empleados', 'marketing']
 
 // Default-all-on shape, used when no cookie exists yet. `normalize` is only
