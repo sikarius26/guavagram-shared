@@ -1,11 +1,20 @@
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, type Ref } from 'vue'
+import { useBioConfig } from './useBioConfig'
 
 // Restaurant media (venue photos + menu item photos). Used by the dashboard's
 // GuavagramPanel/MenuPanel/ReviewsPanel to add/reorder/tag photos, and by the
-// public app's gallery to render them. Backed by `/api/_mock/store/media`
-// (single global store today; will key by slug once the dashboard always has
-// store context) so the photos survive the process boundary once admin lives
-// in a separate Nuxt app.
+// public app's gallery to render them.
+//
+// `venuePhotos` lives in `brandingSettings.venuePhotos` on the StoreProfile —
+// same path the rest of the bio config uses. When a slug is passed to the
+// composable we proxy reads/writes through useBioConfig so the gallery stays
+// in sync across the bio, /menu sidebar strip and /reviews header gallery,
+// AND survives F5 / app-process boundaries via the real backend (no more
+// `.mock-store.json` write-through file).
+//
+// When called WITHOUT a slug, we fall back to the legacy module-scoped ref
+// (`/api/_mock/store/media`) — kept temporarily so admin panels not yet
+// updated keep compiling. Will be removed once every caller passes the slug.
 
 export type VenueAspect = 'interior' | 'exterior' | 'terraza' | 'barra' | 'equipo' | 'general'
 
@@ -121,9 +130,32 @@ function attachWatchersOnce() {
   watch(menuItemPhotos, schedulePush, { deep: true })
 }
 
-export function useRestaurantMedia() {
-  hydrate()
-  attachWatchersOnce()
+export function useRestaurantMedia(slug?: Ref<string | null | undefined> | string) {
+  // Slug-bound mode: venuePhotos lives in bioConfig.venuePhotos (= the same
+  // brandingSettings bag the admin Save / autosave POSTs to /platform). Any
+  // mutation here triggers useBioConfig.schedulePush, so the gallery
+  // round-trips through Guava platform like every other bio field.
+  const bioBound = (() => {
+    if (!slug) return null
+    const slugVal = typeof slug === 'string' ? slug : (slug.value || '')
+    if (!slugVal) return null
+    const { config } = useBioConfig(slug as any)
+    const venuePhotosBound = computed<VenuePhoto[]>({
+      get: () => (Array.isArray(config.value.venuePhotos) ? (config.value.venuePhotos as VenuePhoto[]) : []),
+      set: (next: VenuePhoto[]) => { (config.value as any).venuePhotos = next },
+    })
+    return { config, venuePhotosBound }
+  })()
+
+  if (!bioBound) {
+    // Legacy mode (no slug): keep the local-mock state alive for old callers.
+    hydrate()
+    attachWatchersOnce()
+  }
+
+  const activeVenuePhotos = bioBound
+    ? bioBound.venuePhotosBound
+    : venuePhotos
 
   const setMenuPhoto = (itemId: string, itemName: string, url: string, isVideo: boolean) => {
     menuItemPhotos.value[itemId] = { url, isVideo, itemName }
@@ -134,31 +166,48 @@ export function useRestaurantMedia() {
   }
 
   const addVenuePhoto = (photo: VenuePhoto) => {
-    venuePhotos.value.push(photo)
+    if (bioBound) {
+      const next = [...activeVenuePhotos.value, photo]
+      activeVenuePhotos.value = next
+    } else {
+      venuePhotos.value.push(photo)
+    }
   }
 
   const removeVenuePhoto = (idx: number) => {
-    venuePhotos.value.splice(idx, 1)
+    if (bioBound) {
+      const next = [...activeVenuePhotos.value]
+      next.splice(idx, 1)
+      activeVenuePhotos.value = next
+    } else {
+      venuePhotos.value.splice(idx, 1)
+    }
   }
 
   const reorderVenuePhotos = (from: number, to: number) => {
-    const arr = [...venuePhotos.value]
+    const arr = [...activeVenuePhotos.value]
     const [moved] = arr.splice(from, 1)
     if (moved) arr.splice(to, 0, moved)
-    venuePhotos.value = arr
+    if (bioBound) activeVenuePhotos.value = arr
+    else venuePhotos.value = arr
   }
 
   const setVenueAspect = (photoId: string, aspect: VenueAspect) => {
-    const photo = venuePhotos.value.find(p => p.id === photoId)
-    if (photo) photo.aspect = aspect
+    if (bioBound) {
+      const next = activeVenuePhotos.value.map(p => p.id === photoId ? { ...p, aspect } : p)
+      activeVenuePhotos.value = next
+    } else {
+      const photo = venuePhotos.value.find(p => p.id === photoId)
+      if (photo) photo.aspect = aspect
+    }
   }
 
   // Gallery = venue photos only (menu item photos stay with the menu)
-  const galleryEntries = computed(() => venuePhotos.value)
+  const galleryEntries = computed(() => activeVenuePhotos.value)
 
   return {
     menuItemPhotos,
-    venuePhotos,
+    venuePhotos: activeVenuePhotos,
     galleryEntries,
     setMenuPhoto,
     clearMenuPhoto,

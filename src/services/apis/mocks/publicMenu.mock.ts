@@ -402,26 +402,17 @@ export const buildDevStore = (slug: string) => {
 
 export const buildDevProfile = (slug: string) => {
   if (!slug) return null
+  // Dev fallback when the public /profile endpoint returns null (offline /
+  // unreachable backend during local development). Intentionally has NO
+  // campaigns, NO featured items, NO socials — the public bio should render
+  // empty states for those sections rather than fabricated data the owner
+  // never created. If you need demo data, gate it behind VITE_USE_MOCK.
   return {
     accentColor: '#ff2d23',
     useDarkMode: false,
     skinId: 'modern',
     textColor: '#1a1c1b',
     isDarkMode: false,
-    // Demo campaigns so /bio and /menu both render the Campañas carousel
-    // without a backend. Real stores override this from brandingSettings.
-    // No bg/accent → the renderer/menu palette cycles per index.
-    brandingSettings: {
-      campaigns: [
-        // 1) Combo → deep-links to the "Menú del día" BundleModal in the menu.
-        { id: 'demo-camp-combo', kind: 'combo', linkedBundleId: 'demo-bundle-1', icon: 'mdi-silverware-fork-knife', badge: 'Hoy', title: 'Menú del día', subtitle: 'Primero + segundo + bebida', price: '14,90€', schedule: 'Lun-Vie', cta: 'Ver combo' },
-        // 2) 10% on SOME products only (two entrantes) — only those show the
-        //    struck price in the menu, the rest stay full price.
-        { id: 'demo-camp-10', kind: 'discount', discountPct: 10, discountItemIds: ['e-01', 'e-02'], icon: 'mdi-tag-outline', badge: '-10%', title: '-10% en entrantes', subtitle: 'En croquetas y pan con tomate', cta: 'Ver entrantes' },
-        // 3) Happy hour 20:00-22:00 → -20% on drinks + a time-boxed schedule
-        //    chip (structured schedule object, same shape the admin saves).
-        { id: 'demo-camp-hh', kind: 'discount', discountPct: 20, discountItemIds: ['b-01', 'b-05'], icon: 'mdi-glass-cocktail', badge: 'Happy Hour', title: 'Happy Hour', subtitle: '-20% en bebidas', schedule: { days: [], allDay: false, from: '20:00', to: '22:00' }, cta: 'Ver bebidas' },
-      ],
-    },
+    brandingSettings: {},
   }
 }

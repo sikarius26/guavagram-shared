@@ -11,6 +11,7 @@
 //   - else                   → all menu items
 
 export interface CampaignLike {
+  id?: string
   kind?: 'menu' | 'combo' | 'discount' | string
   discountPct?: number
   discountItemIds?: string[]
@@ -24,6 +25,25 @@ export interface CampaignLike {
   // types (free_item/happy_hour/special/discount_fixed) don't yield a % here.
   type?: string
   value?: string | number
+}
+
+// Filter a campaign list down to the entries the visitor has activated by
+// tapping the card on the public bio/menu. A campaign without an id is treated
+// as opt-in by default (e.g. legacy bookingPromos that have no id) so existing
+// promo flows keep working without the explicit click. Use this BEFORE calling
+// buildDiscountMap to enforce click-to-activate behavior:
+//
+//   const visible = filterActiveCampaigns(rawCampaigns, activeCampaignId.value)
+//   const discounts = buildDiscountMap(visible, itemIds)
+export function filterActiveCampaigns(
+  campaigns: CampaignLike[] | null | undefined,
+  activeCampaignId: string | null | undefined,
+): CampaignLike[] {
+  if (!Array.isArray(campaigns)) return []
+  return campaigns.filter(c => {
+    if (!c.id) return true   // legacy entries: keep behaviour
+    return c.id === activeCampaignId
+  })
 }
 
 // Matches a standalone percentage ("-10%", "10 %") — used to infer a discount

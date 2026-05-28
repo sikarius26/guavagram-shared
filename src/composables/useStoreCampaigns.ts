@@ -1,6 +1,6 @@
 import { computed, ref } from 'vue'
 import type { CampaignSchedule } from './useCampaignSchedule'
-import { emptySchedule, isScheduleActiveNow, parseSchedule } from './useCampaignSchedule'
+import { emptySchedule, isScheduleActiveNow } from './useCampaignSchedule'
 import { marketingApiClient } from '~/services/apis/api.client.marketing'
 import { CampaignStatusEnum } from '~/services/apis/models/campaign-status-enum'
 
@@ -41,6 +41,21 @@ export type StoreCampaign = {
   //                surfaced — claim voucher (QR/Apple/Google Wallet) + the
   //                order-level discount. Falls back to 'menu' when unset.
   kind?: 'menu' | 'combo' | 'discount'
+  // For kind='menu' the campaign card must point somewhere actionable on the
+  // public bio. `linkTarget` makes the three valid destinations explicit so
+  // the editor can't save an unbound "free text" card that would render a
+  // dead CTA. Defaults to 'menu' (whole carta) when unset for back-compat
+  // with campaigns saved before this field existed.
+  //   'menu'    → opens /r/{slug}/menu
+  //   'booking' → opens the booking flow (/booking)
+  //   'item'    → opens /menu?item=<linkedItemId> (item picker required)
+  linkTarget?: 'menu' | 'booking' | 'item'
+  // Multi-item link: when `linkedItemIds` has 2+ entries the card opens the
+  // menu (the renderer can't surface multiple dishes in one card slot). With
+  // exactly one entry it behaves like the legacy single-item link. The
+  // single `linkedItemId` field is kept mirrored to `linkedItemIds[0]` so
+  // older readers (renderer / public menu) keep working without changes.
+  linkedItemIds?: string[]
   linkedItemId?: string
   linkedBundleId?: string
   // Real GuavaPlatform promotion id (from /public/store/{slug}/promotions).
@@ -76,26 +91,11 @@ const PAST_COLLAB_STATUSES: CampaignStatusEnum[] = [
 export const nextCampaignId = (): string =>
   `cmp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
-const makeSeed = (): StoreCampaign[] => [
-  {
-    id: nextCampaignId(),
-    title: 'MENÚ DEL DÍA', subtitle: 'Primer plato + segundo + bebida', price: '14,90€', badge: 'HOY',
-    schedule: parseSchedule('Lun-Vie'), cta: 'Ver menú', colorIdx: 0, layout: 'split', icon: 'mdi-silverware-fork-knife',
-    linkedItemId: undefined, bioVisible: true, isMenuDelDia: true,
-  },
-  {
-    id: nextCampaignId(),
-    title: '-10%', subtitle: 'En tu primera reserva.\nSin condiciones.', price: '', badge: 'Nuevo',
-    schedule: emptySchedule(), cta: 'Activar descuento', colorIdx: 5, layout: 'bold', icon: 'mdi-tag-outline',
-    linkedItemId: undefined, bioVisible: true,
-  },
-  {
-    id: nextCampaignId(),
-    title: 'HAPPY HOUR', subtitle: '2x1 en cocktails y tapas.', price: '', badge: '',
-    schedule: parseSchedule('18:00 - 20:00'), cta: 'Ver ofertas', colorIdx: 2, layout: 'ambient', icon: 'mdi-glass-cocktail',
-    linkedItemId: undefined, bioVisible: true,
-  },
-]
+// Empty seed by convention: campaigns must come from the selected store's
+// brandingSettings.campaigns (persisted via storeProfileApiClient). Hardcoded
+// starter campaigns would leak mock data into restaurants that never created
+// them — admin and public would diverge.
+const makeSeed = (): StoreCampaign[] => []
 
 // Module-scoped so every call to useStoreCampaigns() returns the same ref.
 // Persistence is wired up from the admin side (see GuavagramPanel) which

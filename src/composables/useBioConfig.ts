@@ -62,9 +62,48 @@ export interface BioReviewsData {
   prioritizeFiveStar: boolean
 }
 
+// Hiring section data ("Estamos contratando") shown when sections.hiring is
+// on AND there are open offers. Persisted in brandingSettings so the public
+// bio renders the exact same offers the admin shows — no hardcoded preview.
+//
+// Hospitality-tuned: `role` and `contract` are free strings but the admin
+// editor surfaces niche presets (camarero, cocinero, jefe de sala, …) and the
+// extras below are what actually moves the decision in this sector — pay per
+// hour, shift, experience, start date.
+export type HospitalityPayUnit = 'hour' | 'month' | 'tbd'
+export type HospitalityShift = 'morning' | 'afternoon' | 'night' | 'split' | 'rotating' | ''
+export type HospitalityExperience = 'none' | '1y' | '2y' | ''
+export interface BioHiringOffer {
+  role: string
+  contract: string
+  payAmount?: number | null
+  payUnit?: HospitalityPayUnit
+  shift?: HospitalityShift
+  experience?: HospitalityExperience
+  startDate?: string
+}
+export interface BioHiringData {
+  count: number
+  highlights: BioHiringOffer[]
+}
+
 export interface BioSocial {
   key: string
   url: string
+}
+
+// Public venue photo persisted in brandingSettings.venuePhotos. Same shape
+// `useRestaurantMedia` exposes — duplicated here so shared doesn't depend on
+// the composable module. Aspect drives the per-photo label on the bio gallery
+// (Interior / Comida / Barra / …). `url` is a base64 data URL or remote URL.
+export interface BioVenuePhoto {
+  id: string
+  aspect: string
+  url?: string
+  isVideo?: boolean
+  icon?: string
+  color?: string
+  gradient?: string
 }
 
 export interface BioConfig {
@@ -115,6 +154,12 @@ export interface BioConfig {
   // ── Reviews preview ─────────────────────────────────────────────────────
   reviewsData: BioReviewsData
 
+  // ── Hiring offers ───────────────────────────────────────────────────────
+  // Populated from the admin's "Estamos contratando" editor. The renderer
+  // gates on hiringData.count > 0 so an empty array hides the section even
+  // when the toggle is on.
+  hiringData: BioHiringData
+
   // ── Bookings availability (days × turnos + salas) ──────────────────────
   // Configured from the dashboard's bookings editor. The public bio doesn't
   // render this directly yet (it shows the promo calendar + a simple CTA);
@@ -125,6 +170,23 @@ export interface BioConfig {
     turnos: Array<{ id: string; name: string; timeFrom: string; timeTo: string }>
   }>
   bookingSalas: Array<{ id: string; name: string; capacity?: number }>
+
+  // ── Orders availability (days × turnos) per channel ─────────────────────
+  // Configured from the public ServiceConfigModal "Pedidos" tab. Same shape as
+  // bookingAvailability. The public menu derives `orderChannelStatus.isOpen`
+  // from these (override of any backend value) so add-to-cart shows when the
+  // owner sets hours from here. Advanced (mins/packaging/canales) stays in
+  // Guava — this is the lightweight on/off + horario editor.
+  takeawayAvailability: Array<{
+    dayIndex: number
+    open: boolean
+    turnos: Array<{ id: string; name: string; timeFrom: string; timeTo: string }>
+  }>
+  deliveryAvailability: Array<{
+    dayIndex: number
+    open: boolean
+    turnos: Array<{ id: string; name: string; timeFrom: string; timeTo: string }>
+  }>
 
   // ── Dishes preview ──────────────────────────────────────────────────────
   dishesTitle: string
@@ -137,6 +199,22 @@ export interface BioConfig {
   // ── Badges ──────────────────────────────────────────────────────────────
   priceRange: string
   rating: number
+
+  // ── Galería de fotos del local ──────────────────────────────────────────
+  // Persisted in brandingSettings.venuePhotos. Same source the public bio,
+  // /menu sidebar strip and /reviews header gallery all read from — moving
+  // them off the per-app local mock file and onto /platform was the only way
+  // to keep them in sync between admin uploads and the three public surfaces.
+  venuePhotos: BioVenuePhoto[]
+
+  // ── Otros locales (multi-store / cadena) ────────────────────────────────
+  // Snapshot de los locales hermanos que el dueño elige mostrar en su bio.
+  // Lo guardamos completo (no sólo IDs) para que el bio público no tenga que
+  // resolver IDs contra un endpoint de lookup que no existe — el editor coge
+  // los datos de `useCurrentStore().stores` al marcar el checkbox. Se queda
+  // ligeramente obsoleto si un local hermano cambia nombre/logo: el dueño
+  // re-guarda y se refresca.
+  linkedStores: Array<{ storeId: string; slugName: string; displayName: string; logoUrl?: string }>
 }
 
 // Endpoint prefix for the per-app local mock store. Used as fallback when
@@ -168,6 +246,7 @@ export interface PlatformProfileShape {
   logoUrl?: string
   accentColor?: string
   useDarkMode?: boolean
+  phoneNumber?: string
   brandingSettings?: any
 }
 
@@ -179,11 +258,18 @@ export interface PlatformProfileShape {
 // preserved by the caller's putProfile implementation, which merges this
 // payload with the last cached profile before POSTing.
 function bioConfigToPlatform(c: BioConfig): PlatformProfileShape {
+  // Native `phoneNumber` column on StoreProfileViewModel: store the full
+  // E.164 string (e.g. "+34648535872"). The public StoreInfoViewModel splits
+  // it into phoneDialCode + phoneNumber on its end, but here we only have
+  // one native field, so the dial prefix lives concatenated. FreePlanWidget's
+  // `${dial}${num}` produces the right value either way (dial trimmed to '').
+  const rawPhone = (c.profileData?.contactPhone || '').trim().replace(/\s+/g, '')
   return {
     description: c.description,
     logoUrl: c.logoUrl,
     accentColor: c.accentColor,
     useDarkMode: c.useDarkMode,
+    phoneNumber: rawPhone || undefined,
     brandingSettings: {
       coverUrl: c.coverUrl,
       // StoreProfileViewModel has no native logoUrl column and its dynamic
@@ -213,13 +299,18 @@ function bioConfigToPlatform(c: BioConfig): PlatformProfileShape {
       socials: c.socials,
       loyaltyData: c.loyaltyData,
       reviewsData: c.reviewsData,
+      hiringData: c.hiringData,
       bookingAvailability: c.bookingAvailability,
       bookingSalas: c.bookingSalas,
+      takeawayAvailability: c.takeawayAvailability,
+      deliveryAvailability: c.deliveryAvailability,
       dishesTitle: c.dishesTitle,
       dishesMediaMode: c.dishesMediaMode,
       featuredItemIds: c.featuredItemIds,
       priceRange: c.priceRange,
       rating: c.rating,
+      linkedStores: c.linkedStores,
+      venuePhotos: c.venuePhotos,
     },
   }
 }
@@ -245,7 +336,18 @@ function platformToBioConfig(p: PlatformProfileShape | null): Partial<BioConfig>
     useDarkMode: p.useDarkMode,
     ...b,
   }
-  for (const k of Object.keys(merged)) if (merged[k] === undefined) delete merged[k]
+  // Native `phoneNumber` wins over whatever stale value brandingSettings.profileData
+  // carries — the editor writes the native column (see bioConfigToPlatform), and the
+  // public bio reads from the same native column via StoreInfoViewModel. Keep them
+  // in sync by overlaying the native value onto profileData.contactPhone on read.
+  if (p.phoneNumber) {
+    merged.profileData = { ...(merged.profileData || {}), contactPhone: p.phoneNumber }
+  }
+  // Strip both undefined AND null so withDefaults() actually fills them. Backend
+  // serializes unset optional fields as null (not undefined), and a literal
+  // `accentColor: null` was overriding the default `#1A3C34` and cascading into
+  // the public bio's hardcoded fallback (`#13ec5b` bright green).
+  for (const k of Object.keys(merged)) if (merged[k] === undefined || merged[k] === null) delete merged[k]
   return merged as Partial<BioConfig>
 }
 
@@ -318,8 +420,12 @@ const defaults = (): BioConfig => ({
 
   reviewsData: { showGoogleLink: true, minRating: 4, prioritizeFiveStar: false },
 
+  hiringData: { count: 0, highlights: [] },
+
   bookingAvailability: Array.from({ length: 7 }, (_, i) => ({ dayIndex: i, open: false, turnos: [] })),
   bookingSalas: [],
+  takeawayAvailability: Array.from({ length: 7 }, (_, i) => ({ dayIndex: i, open: false, turnos: [] })),
+  deliveryAvailability: Array.from({ length: 7 }, (_, i) => ({ dayIndex: i, open: false, turnos: [] })),
 
   dishesTitle: 'Platos estrella',
   dishesMediaMode: 'photo',
@@ -327,6 +433,10 @@ const defaults = (): BioConfig => ({
 
   priceRange: '€€',
   rating: 4.8,
+
+  linkedStores: [],
+
+  venuePhotos: [],
 })
 
 // Module-scoped per-slug cache, hydrated lazily from the API on first
@@ -450,6 +560,10 @@ function withDefaults(stored: Partial<BioConfig> | undefined): BioConfig {
     socials: Array.isArray(stored.socials) ? stored.socials : d.socials,
     loyaltyData: { ...d.loyaltyData, ...(stored.loyaltyData || {}) },
     reviewsData: { ...d.reviewsData, ...(stored.reviewsData || {}) },
+    hiringData: {
+      count: typeof stored.hiringData?.count === 'number' ? stored.hiringData.count : d.hiringData.count,
+      highlights: Array.isArray(stored.hiringData?.highlights) ? stored.hiringData.highlights : d.hiringData.highlights,
+    },
     externalLinks: { ...d.externalLinks, ...(stored.externalLinks || {}) },
     cuisines: Array.isArray(stored.cuisines) ? stored.cuisines : d.cuisines,
     featuredItemIds: Array.isArray(stored.featuredItemIds) ? stored.featuredItemIds : d.featuredItemIds,
@@ -457,6 +571,14 @@ function withDefaults(stored: Partial<BioConfig> | undefined): BioConfig {
       ? stored.bookingAvailability
       : d.bookingAvailability,
     bookingSalas: Array.isArray(stored.bookingSalas) ? stored.bookingSalas : d.bookingSalas,
+    takeawayAvailability: Array.isArray(stored.takeawayAvailability) && stored.takeawayAvailability.length === 7
+      ? stored.takeawayAvailability
+      : d.takeawayAvailability,
+    deliveryAvailability: Array.isArray(stored.deliveryAvailability) && stored.deliveryAvailability.length === 7
+      ? stored.deliveryAvailability
+      : d.deliveryAvailability,
+    linkedStores: Array.isArray(stored.linkedStores) ? stored.linkedStores : d.linkedStores,
+    venuePhotos: Array.isArray(stored.venuePhotos) ? stored.venuePhotos : d.venuePhotos,
   }
 }
 

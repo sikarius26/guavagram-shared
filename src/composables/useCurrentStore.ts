@@ -48,8 +48,55 @@ export function setStoresSearchResolver(resolver: StoresSearchResolver | null) {
   customStoresSearchResolver = resolver
 }
 
+// Rich persisted-store payload. Keeps everything we need to rehydrate the
+// switcher BEFORE the stores list comes back from /platform, so a reload
+// (or a slow/failed fetch) doesn't drop the user back to "sin restaurante".
+interface PersistedStore {
+  storeId: string
+  displayName?: string
+  slugName?: string
+  logoUrl?: string
+}
+const COOKIE_MAX_AGE = 60 * 60 * 24 * 365 // 1 year — survives browser close
+
 export function useCurrentStore() {
-  const selectedStoreId = useCookie<string | null>('current_store_id', { default: () => null })
+  // Rich cookie (current). Persistent (1y) so it survives browser restarts.
+  const persistedStore = useCookie<PersistedStore | null>('current_store', {
+    default: () => null,
+    maxAge: COOKIE_MAX_AGE,
+  })
+  // Legacy cookie — older sessions only saved the id. Read on first boot so
+  // returning users don't lose their selection on the cookie upgrade.
+  const legacyStoreId = useCookie<string | null>('current_store_id', {
+    default: () => null,
+    maxAge: COOKIE_MAX_AGE,
+  })
+
+  // Immediate rehydration: if the in-memory `currentStore` is still null
+  // (first call after a reload), reconstruct it from the cookie so the
+  // switcher renders the right store on the very first paint, without
+  // waiting for /platform. `load()` later replaces this with the fresh
+  // fetched object once the list arrives.
+  if (!currentStore.value && persistedStore.value?.storeId) {
+    const info = new DashboardStoreInfo()
+    info.storeId = persistedStore.value.storeId
+    info.displayName = persistedStore.value.displayName || ''
+    info.slugName = persistedStore.value.slugName
+    info.logoUrl = persistedStore.value.logoUrl
+    currentStore.value = info
+  }
+
+  // Write everything we know about the active store back to the cookie.
+  const persist = (s: DashboardStoreInfo | null) => {
+    if (!s?.storeId) return
+    persistedStore.value = {
+      storeId: s.storeId,
+      displayName: s.displayName,
+      slugName: s.slugName,
+      logoUrl: s.logoUrl,
+    }
+    legacyStoreId.value = s.storeId
+  }
 
   const load = async (force = false) => {
     if (stores.value.length && !force) return currentStore.value
@@ -95,9 +142,23 @@ export function useCurrentStore() {
       // before " · " (matches the real Pau Artiso pattern). Replace once the
       // backend exposes a proper StoreGroup table.
       groups.value = inferGroups(stores.value)
-      const preferred = stores.value.find(s => s.storeId === selectedStoreId.value)
-      currentStore.value = preferred ?? stores.value[0] ?? null
-      if (currentStore.value) selectedStoreId.value = currentStore.value.storeId ?? null
+      // Resolve the active store, in order of preference:
+      //  1) cookie-persisted store id (rich cookie, then legacy id fallback)
+      //     matched against the fresh fetched list — preferred path on reload.
+      //  2) the cookie-hydrated `currentStore` itself, kept as-is if the
+      //     fetched list didn't contain it (auth race, store removed from
+      //     the user's grants, partial page from autocomplete, etc.). This
+      //     is what stops the switcher from collapsing to "sin restaurante"
+      //     after a reload when the API roundtrip is slow or empty.
+      //  3) first store in the fetched list, only if we have NOTHING else.
+      const lookupId = persistedStore.value?.storeId || legacyStoreId.value
+      const preferred = lookupId ? stores.value.find(s => s.storeId === lookupId) : undefined
+      if (preferred) {
+        currentStore.value = preferred
+      } else if (!currentStore.value && stores.value[0]) {
+        currentStore.value = stores.value[0]
+      }
+      persist(currentStore.value)
       return currentStore.value
     } finally {
       isLoading.value = false
@@ -141,7 +202,7 @@ export function useCurrentStore() {
       stores.value = [target, ...stores.value]
     }
     currentStore.value = target
-    selectedStoreId.value = storeId
+    persist(target)
     isGroupView.value = false
     currentGroupId.value = null
   }
