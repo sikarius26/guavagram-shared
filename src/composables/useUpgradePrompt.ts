@@ -31,6 +31,8 @@ export function useUpgradePrompt() {
       if (intent === 'upgrade-pro' || intent === 'upgrade-all') {
         if (sub.isProPlan.value) return
       }
+      // upgrade-plus es upgrade desde Completo: NO bloquear por isProPlan.
+      // El panel decide cuándo mostrar el CTA (gateado por isPlusActive).
       if (intent === 'activate-module' && opts.module) {
         if (sub.hasModule(opts.module)) return
       }

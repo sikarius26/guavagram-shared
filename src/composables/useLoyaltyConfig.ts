@@ -207,6 +207,80 @@ function attachDeepWatcher(slug: string) {
   )
 }
 
+// ─── Shared surface + pattern helpers ────────────────────────────────────
+// Same logic LoyaltyCardPreview.vue uses internally, exported so the bio
+// teaser in GuavagramPanel (and any other surface that wants to "look like
+// the loyalty card") can pull a consistent treatment without duplicating
+// the template switch. Pure functions on LoyaltyConfig — no Vue refs.
+//
+// `gradientDirection` is honored only for templates whose surface is a
+// gradient/conic (gradient/metal/neon); classic/glass/mono/vintage have
+// fixed surfaces.
+
+function dirFor(config: LoyaltyConfig, prefix: 'linear' | 'conic', stops: string): string {
+  const d = config.gradientDirection
+  if (prefix === 'conic') return `conic-gradient(from ${d === 'radial' ? '220deg' : d} at 50% 50%, ${stops})`
+  if (d === 'radial')     return `radial-gradient(circle at 30% 30%, ${stops})`
+  return `linear-gradient(${d}, ${stops})`
+}
+
+export function loyaltyCardSurfaceStyle(config: LoyaltyConfig): Record<string, string> {
+  const c = config.cardColor
+  const a = config.cardAccent
+  switch (config.cardTemplate) {
+    case 'gradient':
+      return { background: `radial-gradient(130% 110% at 15% 10%, ${a}55 0%, transparent 45%), ${dirFor(config, 'linear', `${c} 0%, ${c}cc 45%, ${a}dd 100%`)}` }
+    case 'glass':
+      return {
+        background: `linear-gradient(150deg, rgba(255,255,255,0.18) 0%, ${c}66 38%, ${c}99 70%, ${a}44 100%)`,
+        backdropFilter: 'blur(16px)',
+        WebkitBackdropFilter: 'blur(16px)',
+      }
+    case 'mono':
+      return { background: 'linear-gradient(160deg, #ffffff 0%, #f2f2f0 100%)', color: '#0a0a0a' }
+    case 'vintage':
+      return { background: 'linear-gradient(165deg, #faf3e3 0%, #f0e2c6 55%, #e6d4ad 100%)' }
+    case 'metal':
+      return { background: dirFor(config, 'conic', `${c}, ${a}, #ffffff66, ${c}, ${a}, ${c}`) }
+    case 'neon':
+      return { background: `radial-gradient(120% 90% at 100% 0%, ${a}40 0%, transparent 45%), radial-gradient(100% 80% at 0% 100%, ${a}26 0%, transparent 50%), ${dirFor(config, 'linear', `#070707 0%, ${c} 100%`)}` }
+    case 'classic':
+    default:
+      return { background: `radial-gradient(120% 100% at 100% 0%, ${a}22 0%, transparent 40%), ${dirFor(config, 'linear', `${c} 0%, ${c}f0 55%, ${c}d8 100%`)}` }
+  }
+}
+
+export function loyaltyCardPatternStyle(config: LoyaltyConfig): Record<string, string | number> {
+  switch (config.cardPattern) {
+    case 'dots':
+      return { backgroundImage: 'radial-gradient(circle, white 1px, transparent 1px)', backgroundSize: '14px 14px', opacity: 0.06 }
+    case 'grid':
+      return { backgroundImage: 'linear-gradient(white 0.5px, transparent 0.5px), linear-gradient(90deg, white 0.5px, transparent 0.5px)', backgroundSize: '18px 18px', opacity: 0.06 }
+    case 'mesh':
+      return { backgroundImage: 'radial-gradient(at 20% 30%, rgba(255,255,255,0.18) 0px, transparent 50%), radial-gradient(at 80% 70%, rgba(255,255,255,0.12) 0px, transparent 50%)', opacity: 1 }
+    case 'waves':
+      return { backgroundImage: 'repeating-linear-gradient(45deg, rgba(255,255,255,0.08) 0px, rgba(255,255,255,0.08) 1px, transparent 1px, transparent 12px)', opacity: 1 }
+    case 'noise':
+      return { backgroundImage: 'url("data:image/svg+xml;utf8,<svg xmlns=\\"http://www.w3.org/2000/svg\\" width=\\"160\\" height=\\"160\\"><filter id=\\"n\\"><feTurbulence type=\\"fractalNoise\\" baseFrequency=\\"0.85\\" numOctaves=\\"2\\"/><feColorMatrix values=\\"0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.15 0\\"/></filter><rect width=\\"100%\\" height=\\"100%\\" filter=\\"url(%23n)\\"/></svg>")', opacity: 0.7 }
+    case 'none':
+    default:
+      return { display: 'none' }
+  }
+}
+
+// Light-on-dark contrast helper. Returns '#1a1c1b' for light surfaces (Mono,
+// Vintage when the picked color is pale) and '#ffffff' otherwise. Callers
+// should pass the same `cardColor` they're using to paint the surface.
+export function loyaltyCardForegroundColor(cardColor: string | undefined | null): string {
+  const hex = (cardColor || '#1a1c1b').replace('#', '')
+  if (hex.length < 6) return '#ffffff'
+  const r = parseInt(hex.slice(0, 2), 16)
+  const g = parseInt(hex.slice(2, 4), 16)
+  const b = parseInt(hex.slice(4, 6), 16)
+  const luma = 0.299 * r + 0.587 * g + 0.114 * b
+  return luma > 160 ? '#1a1c1b' : '#ffffff'
+}
+
 export function useLoyaltyConfig(slugRef: Ref<string | null | undefined> | string) {
   const getKey = (): string => {
     const v = typeof slugRef === 'string' ? slugRef : slugRef.value

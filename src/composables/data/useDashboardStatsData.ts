@@ -1,19 +1,19 @@
 // Restaurant dashboard KPI accessor. Wires the home cards to the real
-// Platform endpoints — we deliberately fetch from three different sources
-// instead of waiting for a single `/dashboard/overview` endpoint that
-// doesn't exist yet:
+// Platform endpoints (rating, vouchers, customers) PLUS the local Nitro
+// tracker (profile views + CTA clicks) — Platform doesn't expose a bio
+// analytics endpoint yet, so we keep that tracking in-house via the
+// /api/track/{slug}/summary route and fold it into the same overview.
 //
 //   - avgRating         ← storeprofileReviewsSummary  (per-period or all-time)
 //   - vouchersRedeemed  ← campaignSummary.totalVouchersRedeemed
 //   - loyaltyMembers    ← customerRecap.totalCustomers (best available
 //                         proxy — there's no dedicated "loyalty enrollment
-//                         count" endpoint, and totalCustomers represents the
-//                         universe of identified customers in the store)
+//                         count" endpoint)
+//   - profileViews      ← /api/track/{slug}/summary.profileViews
+//   - ctaClicks         ← /api/track/{slug}/summary.ctaClicks
 //
-// profileViews and ctaClicks have NO Platform endpoint. The home renders
-// upgrade CTAs in those slots; this composable does not return them.
-// When/if the Platform adds a bio-analytics endpoint, extend `Overview`
-// and add a fourth fetch alongside the others.
+// When Platform exposes a real bio-analytics endpoint, swap the local
+// tracker fetch for that call — the rest of the composable stays the same.
 
 import { ref, watch, computed, type ComputedRef, type Ref } from 'vue'
 import { storeProfileApiClient } from '~/services/apis/api.client.storeprofile'
@@ -30,6 +30,10 @@ export interface DashboardOverviewKpi {
 export interface DashboardOverview {
   avgRating: DashboardOverviewKpi
   vouchersRedeemed: DashboardOverviewKpi
+  profileViews: DashboardOverviewKpi
+  ctaClicks: DashboardOverviewKpi
+  ctaByType: Record<string, number>
+  bySourceType: Record<string, number>
   loyalty: {
     membersDisplay: string
     membersCount: number
@@ -55,13 +59,32 @@ const formatRating = (n: number): string => n > 0 ? n.toFixed(1) : '—'
 const EMPTY_OVERVIEW: DashboardOverview = {
   avgRating: { display: '—', value: 0 },
   vouchersRedeemed: { display: '0', value: 0 },
+  profileViews: { display: '—', value: 0 },
+  ctaClicks: { display: '—', value: 0 },
+  ctaByType: {},
+  bySourceType: {},
   loyalty: { membersDisplay: '0', membersCount: 0 },
+}
+
+// Local tracking summary shape — mirror of `server/utils/tracking.ts.TrackingSummary`.
+// `profileViews` is the deduped session count; `pageViewsRaw` is the total
+// event count (engagement signal). We show `profileViews` on the home KPI
+// because "Visitas al perfil" reads naturally as unique visits.
+interface TrackingSummary {
+  profileViews: number
+  pageViewsRaw?: number
+  uniqueVisitors?: number
+  ctaClicks: number
+  ctaByType: Record<string, number>
+  bySourceType: Record<string, number>
 }
 
 export function useDashboardStatsData(
   storeId?: Ref<string> | (() => string),
+  slug?: Ref<string> | (() => string),
 ): UseDashboardStatsDataReturn {
   const idRef = typeof storeId === 'function' ? computed(storeId) : storeId
+  const slugRef = typeof slug === 'function' ? computed(slug) : slug
 
   const data = ref<DashboardOverview>(EMPTY_OVERVIEW)
   const isLoading = ref(false)
@@ -71,29 +94,47 @@ export function useDashboardStatsData(
   // 404 on, say, campaignSummary doesn't blank out the rating card too.
   const fetchAll = async () => {
     const id = idRef?.value
-    if (!id) { data.value = EMPTY_OVERVIEW; return }
+    const s = slugRef?.value
+    if (!id && !s) { data.value = EMPTY_OVERVIEW; return }
     isLoading.value = true
     error.value = null
     try {
-      const [reviewsRes, recapRes, campaignsRes] = await Promise.allSettled([
-        storeProfileApiClient.storeprofileReviewsSummary(id, null, null),
-        customerApiClient.customerRecap(id),
-        campaignApiClient.campaignSummary(id),
+      // The tracking summary lives on the local Nitro (same workspace file
+      // both apps share). Skipped when no slug is in scope — admin pages
+      // that only know storeId still get the other 3 KPIs.
+      const trackingFetch: Promise<TrackingSummary | null> = s
+        ? (typeof fetch !== 'undefined'
+            ? fetch(`/api/track/${encodeURIComponent(s)}/summary`).then(r => r.ok ? r.json() : null).catch(() => null)
+            : Promise.resolve(null))
+        : Promise.resolve(null)
+
+      const [reviewsRes, recapRes, campaignsRes, trackingRes] = await Promise.allSettled([
+        id ? storeProfileApiClient.storeprofileReviewsSummary(id, null, null) : Promise.resolve(null as any),
+        id ? customerApiClient.customerRecap(id)                              : Promise.resolve(null as any),
+        id ? campaignApiClient.campaignSummary(id)                            : Promise.resolve(null as any),
+        trackingFetch,
       ])
 
       const avg = reviewsRes.status === 'fulfilled' ? (reviewsRes.value?.avgOverall ?? 0) : 0
       const totalCustomers = recapRes.status === 'fulfilled' ? (recapRes.value?.totalCustomers ?? 0) : 0
       const redeemed = campaignsRes.status === 'fulfilled' ? (campaignsRes.value?.totalVouchersRedeemed ?? 0) : 0
+      const tracking = trackingRes.status === 'fulfilled' ? (trackingRes.value as TrackingSummary | null) : null
+
+      const views = tracking?.profileViews ?? 0
+      const clicks = tracking?.ctaClicks ?? 0
 
       data.value = {
         avgRating: { display: formatRating(avg), value: avg },
         vouchersRedeemed: { display: formatCompact(redeemed), value: redeemed },
+        // "—" until at least one event lands — avoids painting a misleading
+        // "0" on stores that haven't been visited yet.
+        profileViews: { display: views > 0 ? formatCompact(views) : '—', value: views },
+        ctaClicks:    { display: clicks > 0 ? formatCompact(clicks) : '—', value: clicks },
+        ctaByType:    tracking?.ctaByType ?? {},
+        bySourceType: tracking?.bySourceType ?? {},
         loyalty: { membersDisplay: formatCompact(totalCustomers), membersCount: totalCustomers },
       }
 
-      // Surface any of the individual rejections as a soft error so the UI
-      // can show a stale-data hint if needed. Not blocking — partial data is
-      // still useful.
       const firstFailure = [reviewsRes, recapRes, campaignsRes].find(r => r.status === 'rejected')
       if (firstFailure && firstFailure.status === 'rejected') {
         error.value = firstFailure.reason as Error
@@ -106,7 +147,7 @@ export function useDashboardStatsData(
     }
   }
 
-  if (idRef) watch(idRef, fetchAll, { immediate: true })
+  if (idRef || slugRef) watch([idRef, slugRef].filter(Boolean) as any, fetchAll, { immediate: true })
   else fetchAll()
 
   return {

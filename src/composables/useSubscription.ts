@@ -3,7 +3,7 @@ import { ref, computed, type Ref } from 'vue'
 // ─── Types ────────────────────────────────────────────────────────────────────
 export type SubscriptionPlan = 'free' | 'pro'
 export type GuavaModule = 'orders' | 'bookings' | 'marketing' | 'inventory' | 'employees' | 'analytics'
-export type UpgradeIntent = 'upgrade-pro' | 'verified-badge' | 'activate-module' | 'upgrade-all' | 'verify-account'
+export type UpgradeIntent = 'upgrade-pro' | 'verified-badge' | 'activate-module' | 'upgrade-all' | 'upgrade-plus' | 'verify-account'
 
 // Mapping `GuavaModule` → `PlatformFeatureTypeEnum` (numeric values from
 // guavagram-admin/app/services/apis/models/platform-feature-type-enum.ts).
@@ -171,6 +171,9 @@ export function useSubscription() {
   // when admin has wired the resolver). Falls back to the legacy
   // `activeModules` set for consumer-side / dev-mock flows.
   const hasModule = (m: GuavaModule): boolean => {
+    // Analytics is always available — even on Free. It's the lead magnet:
+    // without seeing the data you can't justify the upgrade.
+    if (m === 'analytics') return true
     const fid = MODULE_TO_FEATURE[m]
     if (activeFeatures.value.has(fid)) return true
     return activeModules.value.has(m)

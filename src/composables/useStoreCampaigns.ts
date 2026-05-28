@@ -62,6 +62,14 @@ export type StoreCampaign = {
   // Binds a discount card to the actual voucher/discount engine instead of
   // being a purely decorative "-10%" label.
   promotionId?: string
+  // Cupón code that the visitor types in the cart to activate the discount
+  // (kind='discount' only). When linked to a real promotion (`promotionId`),
+  // this mirrors the backend's PromotionViewModel.code so the public bio +
+  // cart can validate without an extra round trip. When NOT linked, the code
+  // lives only here in brandingSettings — a stopgap until GuavaPlatform
+  // exposes promotion CRUD endpoints. Case-insensitive match (uppercase by
+  // convention) is the rule in the cart resolver.
+  couponCode?: string
   // Per-product discount (kind='discount'). `discountItemIds` scopes which
   // dishes show the struck price in the bio + menu; empty/undefined = whole
   // menu. Consumed by useCampaignDiscounts on the public side.
