@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { getCountries, getCountryCallingCode, AsYouType, parsePhoneNumberFromString } from 'libphonenumber-js'
 
 const EXCLUDED = ['VA', 'IC', 'CA', 'GG', 'IM', 'JE', 'GP', 'MF']
@@ -106,6 +106,29 @@ const onPhoneInput = (e: Event) => {
     emits('update:phone', val)
     emits('update:isValid', num?.isValid() ?? false)
 }
+
+// Defensive normalization: when the parent passes the FULL E.164 string
+// (e.g. "+34648535872" from `user.phoneNumber` returned with dial code
+// embedded), split it back into dial code + national so the country
+// selector and the input don't both render the prefix. Emits the cleaned
+// values back to the parent so the model is repaired in-place — otherwise
+// the booking request would carry the duplicated string.
+watch(
+    () => props.phone,
+    (val) => {
+        if (!val || !val.startsWith('+')) return
+        const parsed = parsePhoneNumberFromString(val)
+        if (!parsed) return
+        const detectedDialCode = `+${parsed.countryCallingCode}`
+        if (detectedDialCode !== props.phoneDialCode) {
+            emits('update:phoneDialCode', detectedDialCode)
+        }
+        if (parsed.nationalNumber !== val) {
+            emits('update:phone', parsed.nationalNumber)
+        }
+    },
+    { immediate: true }
+)
 
 const onOutside = (e: MouseEvent) => {
     if (!triggerRef.value?.contains(e.target as Node) && !dropdownRef.value?.contains(e.target as Node))

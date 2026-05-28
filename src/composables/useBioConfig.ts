@@ -85,6 +85,11 @@ export interface BioHiringOffer {
 export interface BioHiringData {
   count: number
   highlights: BioHiringOffer[]
+  // Contact channels the public bio uses to surface "Aplicar" CTAs. At least
+  // one must be set for the button to render; both → two side-by-side pills.
+  // Stored as raw user input — the renderer sanitises the number for wa.me.
+  applyEmail?: string
+  applyWhatsapp?: string
 }
 
 export interface BioSocial {

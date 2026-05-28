@@ -7,6 +7,7 @@ import { ExternalScriptTypeEnum } from './external-script-type-enum';
 import { ScheduleViewModel } from './schedule-view-model';
 import { BookingShiftViewModel } from './booking-shift-view-model';
 import { BookingOfferViewModel } from './booking-offer-view-model';
+import { StoreDeliveryAreaViewModel } from './store-delivery-area-view-model';
 
 export class StoreInfoViewModel {
     id!: string | undefined;
@@ -42,6 +43,7 @@ export class StoreInfoViewModel {
     weeklySchedule!: { [key: string]: ScheduleViewModel; } | undefined;
     bookingShifts!: BookingShiftViewModel[] | undefined;
     bookingOffers!: BookingOfferViewModel[] | undefined;
+    deliveryAreas!: StoreDeliveryAreaViewModel[] | undefined;
 
 
     init(_data?: any, _mappings?: any) {
@@ -52,6 +54,7 @@ export class StoreInfoViewModel {
                 weeklySchedule: { dictionaryOf: ScheduleViewModel },
                 bookingShifts: { arrayOf: BookingShiftViewModel },
                 bookingOffers: { arrayOf: BookingOfferViewModel },
+                deliveryAreas: { arrayOf: StoreDeliveryAreaViewModel },
             });
             Object.assign(this, mapped);
         }
@@ -67,6 +70,7 @@ export class StoreInfoViewModel {
             weeklySchedule: { dictionaryOf: ScheduleViewModel },
             bookingShifts: { arrayOf: BookingShiftViewModel },
             bookingOffers: { arrayOf: BookingOfferViewModel },
+            deliveryAreas: { arrayOf: StoreDeliveryAreaViewModel },
         });
     }
 
